@@ -1,0 +1,52 @@
+octawire_auth:
+    default_project: 'project-1'  # Проект по умолчанию
+    projects:
+        project-1:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052  # TCP/JATP порт (по умолчанию 50052)
+                persistent: true  # Переиспользование соединений
+                tls:
+                    enabled: false  # true для production
+                    # ca_file: '%kernel.project_dir%/config/tls/ca.crt'
+                    # cert_file: '%kernel.project_dir%/config/tls/client.crt'  # для mTLS
+                    # key_file: '%kernel.project_dir%/config/tls/client.key'  # для mTLS
+                    # server_name: 'auth-service.example.com'
+            project_id: 'project-1'
+            api_key: '%env(AUTH_API_KEY)%'
+            retry:
+                max_attempts: 3
+                initial_backoff: 0.1
+                max_backoff: 5.0
+            key_cache:
+                driver: 'memory'
+                ttl: 3600
+                max_size: 100
+            timeout:
+                connect: 10.0
+                request: 30.0
+        project-2:
+            transport: 'tcp'
+            tcp:
+                host: 'auth.example.com'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    ca_file: '%kernel.project_dir%/config/tls/ca.crt'
+                    server_name: 'auth.example.com'
+            project_id: 'project-2'
+            retry:
+                max_attempts: 3
+            key_cache:
+                driver: 'redis'
+                ttl: 3600
+            redis:
+                host: 'localhost'
+                port: 6379
+                db: 0
+
+
+
+

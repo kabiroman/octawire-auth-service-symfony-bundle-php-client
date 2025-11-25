@@ -1,0 +1,31 @@
+services:
+    _defaults:
+        autowire: false
+        autoconfigure: false
+
+    # Client Factory
+    octawire_auth.client_factory:
+        class: Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory
+        arguments:
+            - '@service_container'
+            - []
+            - null
+
+    # Token Validator
+    octawire_auth.token_validator:
+        class: Kabiroman\Octawire\AuthService\Bundle\Service\TokenValidator
+        arguments:
+            - '@octawire_auth.client_factory'
+
+    # User Provider
+    octawire_auth.user_provider:
+        class: Kabiroman\Octawire\AuthService\Bundle\Security\OctowireUserProvider
+
+    # Authenticator
+    octawire_auth.authenticator:
+        class: Kabiroman\Octawire\AuthService\Bundle\Security\OctowireTokenAuthenticator
+        arguments:
+            - '@octawire_auth.token_validator'
+            - '%octawire_auth.default_project%'
+        # Note: authenticator is registered via security.yaml, not as a service tag
+

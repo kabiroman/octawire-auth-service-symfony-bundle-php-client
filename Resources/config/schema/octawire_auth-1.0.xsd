@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            targetNamespace="http://octawire.local/schema/dic/octawire_auth"
+            xmlns="http://octawire.local/schema/dic/octawire_auth"
+            elementFormDefault="qualified">
+
+    <xsd:element name="config" type="octawire_auth"/>
+
+    <xsd:complexType name="octawire_auth">
+        <xsd:sequence>
+            <xsd:element name="default_project" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="projects" type="projects" minOccurs="1"/>
+        </xsd:sequence>
+    </xsd:complexType>
+
+    <xsd:complexType name="projects">
+        <xsd:sequence>
+            <xsd:element name="project" type="project" minOccurs="1" maxOccurs="unbounded"/>
+        </xsd:sequence>
+    </xsd:complexType>
+
+    <xsd:complexType name="project">
+        <xsd:all>
+            <xsd:element name="address" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="transport" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="tcp" type="tcp" minOccurs="1"/>
+            <xsd:element name="project_id" type="xsd:string"/>
+            <xsd:element name="api_key" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="retry" type="retry" minOccurs="0"/>
+            <xsd:element name="key_cache" type="key_cache" minOccurs="0"/>
+            <xsd:element name="redis" type="redis" minOccurs="0"/>
+            <xsd:element name="timeout" type="timeout" minOccurs="0"/>
+        </xsd:all>
+        <xsd:attribute name="name" type="xsd:string" use="required"/>
+    </xsd:complexType>
+
+    <xsd:complexType name="tcp">
+        <xsd:all>
+            <xsd:element name="host" type="xsd:string"/>
+            <xsd:element name="port" type="xsd:integer"/>
+            <xsd:element name="persistent" type="xsd:boolean" minOccurs="0"/>
+            <xsd:element name="tls" type="tls" minOccurs="0"/>
+        </xsd:all>
+    </xsd:complexType>
+
+    <xsd:complexType name="tls">
+        <xsd:all>
+            <xsd:element name="enabled" type="xsd:boolean" minOccurs="0"/>
+            <xsd:element name="required" type="xsd:boolean" minOccurs="0"/>
+            <xsd:element name="cert_file" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="key_file" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="ca_file" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="server_name" type="xsd:string" minOccurs="0"/>
+        </xsd:all>
+    </xsd:complexType>
+
+    <xsd:complexType name="retry">
+        <xsd:all>
+            <xsd:element name="max_attempts" type="xsd:integer" minOccurs="0"/>
+            <xsd:element name="initial_backoff" type="xsd:decimal" minOccurs="0"/>
+            <xsd:element name="max_backoff" type="xsd:decimal" minOccurs="0"/>
+        </xsd:all>
+    </xsd:complexType>
+
+    <xsd:complexType name="key_cache">
+        <xsd:all>
+            <xsd:element name="driver" type="key_cache_driver" minOccurs="0"/>
+            <xsd:element name="ttl" type="xsd:integer" minOccurs="0"/>
+            <xsd:element name="max_size" type="xsd:integer" minOccurs="0"/>
+        </xsd:all>
+    </xsd:complexType>
+
+    <xsd:simpleType name="key_cache_driver">
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="memory"/>
+            <xsd:enumeration value="redis"/>
+        </xsd:restriction>
+    </xsd:simpleType>
+
+    <xsd:complexType name="redis">
+        <xsd:all>
+            <xsd:element name="host" type="xsd:string" minOccurs="0"/>
+            <xsd:element name="port" type="xsd:integer" minOccurs="0"/>
+            <xsd:element name="db" type="xsd:integer" minOccurs="0"/>
+            <xsd:element name="password" type="xsd:string" minOccurs="0"/>
+        </xsd:all>
+    </xsd:complexType>
+
+    <xsd:complexType name="timeout">
+        <xsd:all>
+            <xsd:element name="connect" type="xsd:decimal" minOccurs="0"/>
+            <xsd:element name="request" type="xsd:decimal" minOccurs="0"/>
+        </xsd:all>
+    </xsd:complexType>
+</xsd:schema>
+
+
+
+

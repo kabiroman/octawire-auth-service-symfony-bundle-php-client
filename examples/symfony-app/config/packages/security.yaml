@@ -1,0 +1,35 @@
+security:
+    # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
+
+    # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
+    providers:
+        # Used to reload user from session & other features (e.g. switch_user)
+        octawire_user_provider:
+            id: octawire_auth.user_provider
+
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/
+            security: false
+        api:
+            pattern: ^/api/
+            stateless: true
+            custom_authenticators:
+                - octawire_auth.authenticator
+            access_control:
+                - { path: ^/api/, roles: ROLE_USER }
+
+    # Easy way to control access for large sections of your site
+    # Note: Only the *first* access control that matches will be used
+    access_control:
+        - { path: ^/api/, roles: ROLE_USER }
+
+    # When multiple authenticators are used, Symfony will try them one by one
+    # until one succeeds. The order matters!
+    # https://symfony.com/doc/current/security.html#multiple-authenticators
+
+
+
+
