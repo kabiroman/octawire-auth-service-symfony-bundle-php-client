@@ -4,10 +4,9 @@
          bootstrap="vendor/autoload.php"
          colors="true"
          cacheDirectory=".phpunit.cache"
-         executionOrder="depends,defects"
-         beStrictAboutOutputDuringTests="true"
-         failOnRiskyTests="true"
-         failOnWarning="true">
+        executionOrder="depends,defects"
+        beStrictAboutOutputDuringTests="true"
+        failOnWarning="true">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>

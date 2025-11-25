@@ -33,7 +33,8 @@ class OctowireToken extends AbstractToken
         $this->projectId = $projectId;
         $this->claims = $claims;
 
-        $this->setAuthenticated(count($roles) > 0);
+        // In Symfony 6.4+, authenticated status is determined by presence of roles
+        // AbstractToken's isAuthenticated() checks if roles are not empty
     }
 
     /**

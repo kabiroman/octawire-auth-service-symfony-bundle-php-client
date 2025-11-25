@@ -1,0 +1,44 @@
+framework:
+    secret: '%kernel.secret%'
+    test: true
+    session:
+        storage_factory_id: session.storage.factory.mock_file
+
+security:
+    # Disable password hashing for tests
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
+            algorithm: plaintext
+    firewalls:
+        test:
+            pattern: ^/test
+            stateless: true
+            custom_authenticators:
+                - octawire_auth.authenticator
+
+    providers:
+        octawire_user_provider:
+            id: octawire_auth.user_provider
+
+octawire_auth:
+    default_project: 'test-project'
+    projects:
+        test-project:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: false
+                tls:
+                    enabled: false
+            project_id: 'test-project'
+            retry:
+                max_attempts: 1
+            key_cache:
+                driver: 'memory'
+                ttl: 60
+                max_size: 10
+            timeout:
+                connect: 5.0
+                request: 10.0
+
