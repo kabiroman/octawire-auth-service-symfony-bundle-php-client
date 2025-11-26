@@ -68,6 +68,17 @@ class OctawireAuthExtension extends Extension
         $validationMode = $config['validation_mode'] ?? 'remote';
         $checkBlacklist = $config['check_blacklist'] ?? true;
 
+        // Extract service auth from first project config (service auth is per-project)
+        $serviceName = null;
+        $serviceSecret = null;
+        if (!empty($projects)) {
+            $firstProjectConfig = reset($projects);
+            if (isset($firstProjectConfig['service_auth'])) {
+                $serviceName = $firstProjectConfig['service_auth']['service_name'] ?? null;
+                $serviceSecret = $firstProjectConfig['service_auth']['service_secret'] ?? null;
+            }
+        }
+
         // Register LocalTokenValidator if needed (local or hybrid mode)
         if (in_array($validationMode, ['local', 'hybrid'], true)) {
             $localValidatorDefinition = new Definition(\Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator::class);
@@ -78,13 +89,15 @@ class OctawireAuthExtension extends Extension
             $container->setDefinition('octawire_auth.local_token_validator', $localValidatorDefinition);
         }
 
-        // Update TokenValidator with validation mode and check_blacklist
+        // Update TokenValidator with validation mode, check_blacklist, and service auth
         $tokenValidatorDefinition = $container->getDefinition('octawire_auth.token_validator');
         $tokenValidatorDefinition->setArguments([
             new Reference('octawire_auth.client_factory'),
             $validationMode,
             $checkBlacklist,
             in_array($validationMode, ['local', 'hybrid'], true) ? new Reference('octawire_auth.local_token_validator') : null,
+            $serviceName,
+            $serviceSecret,
         ]);
     }
 

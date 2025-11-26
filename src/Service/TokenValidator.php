@@ -9,6 +9,7 @@ use Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator;
 use Kabiroman\Octawire\AuthService\Client\Exception\InvalidTokenException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenExpiredException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenRevokedException;
+use Kabiroman\Octawire\AuthService\Client\Request\JWT\IssueServiceTokenRequest;
 use Kabiroman\Octawire\AuthService\Client\Request\JWT\ValidateTokenRequest;
 use Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
@@ -23,17 +24,25 @@ class TokenValidator
     private string $validationMode;
     private bool $checkBlacklist;
     private ?LocalTokenValidator $localValidator;
+    private ?string $serviceName;
+    private ?string $serviceSecret;
+    private ?string $cachedServiceToken = null;
+    private ?int $serviceTokenExpiresAt = null;
 
     public function __construct(
         AuthClientFactory $clientFactory,
         string $validationMode = 'remote',
         bool $checkBlacklist = true,
-        ?LocalTokenValidator $localValidator = null
+        ?LocalTokenValidator $localValidator = null,
+        ?string $serviceName = null,
+        ?string $serviceSecret = null
     ) {
         $this->clientFactory = $clientFactory;
         $this->validationMode = $validationMode;
         $this->checkBlacklist = $checkBlacklist;
         $this->localValidator = $localValidator;
+        $this->serviceName = $serviceName;
+        $this->serviceSecret = $serviceSecret;
     }
 
     /**
@@ -93,8 +102,11 @@ class TokenValidator
                 checkBlacklist: $this->checkBlacklist
             );
 
-            // ValidateToken requires JWT token for authentication (second parameter)
-            $response = $client->validateToken($request, $token);
+            // Get service token for authentication (if service auth is configured)
+            $serviceToken = $this->getServiceToken($client, $projectId);
+
+            // Validate token using service token for authentication
+            $response = $client->validateToken($request, $serviceToken);
 
             if (!$response->valid) {
                 throw new BadCredentialsException($response->error ?? 'Token is invalid.');
@@ -111,7 +123,9 @@ class TokenValidator
         } catch (InvalidTokenException $e) {
             throw new BadCredentialsException('Token is invalid.', 0, $e);
         } catch (\Exception $e) {
-            throw new AuthenticationException('Token validation failed.', 0, $e);
+            // Log the actual error for debugging
+            error_log('TokenValidator::validateRemote error: ' . $e->getMessage() . ' | Trace: ' . $e->getTraceAsString());
+            throw new AuthenticationException('Token validation failed: ' . $e->getMessage(), 0, $e);
         }
     }
 
@@ -134,8 +148,11 @@ class TokenValidator
                 checkBlacklist: true
             );
 
-            // ValidateToken requires JWT token for authentication (second parameter)
-            $response = $client->validateToken($request, $token);
+            // Get service token for authentication
+            $serviceToken = $this->getServiceToken($client, $projectId);
+
+            // Validate token (blacklist check only)
+            $response = $client->validateToken($request, $serviceToken);
 
             // If blacklist check fails, return error
             if (!$response->valid) {
@@ -182,6 +199,60 @@ class TokenValidator
 
             return $payload['project_id'] ?? $payload['aud'] ?? null;
         } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get service token for authentication (with caching)
+     *
+     * @param \Kabiroman\Octawire\AuthService\Client\AuthClient $client AuthClient instance
+     * @param string|null $projectId Project ID
+     * @return string|null Service token, or null if service auth is not configured
+     */
+    private function getServiceToken($client, ?string $projectId): ?string
+    {
+        // If service auth is not configured, return null (will use apiKey from config)
+        if ($this->serviceName === null || $this->serviceSecret === null) {
+            return null;
+        }
+
+        // Check if cached token is still valid (with 60 seconds buffer)
+        if ($this->cachedServiceToken !== null && $this->serviceTokenExpiresAt !== null) {
+            if (time() < ($this->serviceTokenExpiresAt - 60)) {
+                return $this->cachedServiceToken;
+            }
+        }
+
+        // Issue new service token
+        try {
+            $request = new IssueServiceTokenRequest(
+                sourceService: $this->serviceName,
+                projectId: $projectId
+            );
+
+            $response = $client->issueServiceToken($request, $this->serviceSecret);
+
+            // Cache the token
+            $this->cachedServiceToken = $response->accessToken;
+            
+            // Parse token to get expiration (with fallback to 1 hour)
+            try {
+                $parts = explode('.', $response->accessToken);
+                if (count($parts) === 3) {
+                    $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+                    $this->serviceTokenExpiresAt = $payload['exp'] ?? (time() + 3600);
+                } else {
+                    $this->serviceTokenExpiresAt = time() + 3600;
+                }
+            } catch (\Exception $e) {
+                $this->serviceTokenExpiresAt = time() + 3600;
+            }
+
+            return $this->cachedServiceToken;
+        } catch (\Exception $e) {
+            // If service token issuance fails, log and return null
+            error_log('Failed to issue service token: ' . $e->getMessage());
             return null;
         }
     }
