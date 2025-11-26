@@ -26,6 +26,7 @@ services:
         class: Kabiroman\Octawire\AuthService\Bundle\Security\OctowireTokenAuthenticator
         arguments:
             - '@octawire_auth.token_validator'
+            - '@octawire_auth.client_factory'
             - '%octawire_auth.default_project%'
         # Note: authenticator is registered via security.yaml, not as a service tag
 

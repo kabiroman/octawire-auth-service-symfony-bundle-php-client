@@ -8,10 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **BREAKING**: Migrated to typed DTO API (requires PHP client v0.9.1+)
+  - `TokenValidator::validateToken()` now returns `ValidateTokenResponse` instead of `array`
+  - `OctowireTokenAuthenticator` now works with `ValidateTokenResponse` and `TokenClaims` DTOs
+  - Improved type safety and IDE autocompletion
 - Updated configuration to support TCP/JATP transport (replaces gRPC)
 - Configuration now uses `tcp.host` and `tcp.port` instead of `address`
 - TLS configuration moved to `tcp.tls` section
 - Updated examples to use TCP transport (port 50052)
+
+### Added
+- Support for `ValidateTokenRequest` and `ValidateTokenResponse` DTOs
+- Support for `TokenClaims` DTO for type-safe claims handling
+- Improved error messages with error codes from `ValidateTokenResponse`
+- **Local token validation** - Local JWT signature verification using public keys
+  - `LocalTokenValidator` service for local signature verification
+  - Support for three validation modes: `remote`, `local`, `hybrid`
+  - Configuration options: `validation_mode` and `check_blacklist`
+  - Public key caching for performance
+- **Project ID whitelist** - Enhanced security with project_id whitelist validation
+  - Tokens with project_id not in configuration are rejected before validation
+  - Improved error messages reflecting whitelist concept
+  - Support for multiple project_id with different algorithms
+- Dependency on `firebase/php-jwt` ^6.0 for local JWT validation
 
 ## [0.9.1] - 2025-11-25
 

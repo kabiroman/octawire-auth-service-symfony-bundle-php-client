@@ -63,6 +63,29 @@ class OctawireAuthExtension extends Extension
             $projectIds,
             $config['default_project'] ?? null,
         ]);
+
+        // Get validation mode and check_blacklist from config
+        $validationMode = $config['validation_mode'] ?? 'remote';
+        $checkBlacklist = $config['check_blacklist'] ?? true;
+
+        // Register LocalTokenValidator if needed (local or hybrid mode)
+        if (in_array($validationMode, ['local', 'hybrid'], true)) {
+            $localValidatorDefinition = new Definition(\Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator::class);
+            $localValidatorDefinition->setArguments([
+                new Reference('octawire_auth.client_factory'),
+            ]);
+            $localValidatorDefinition->setPublic(false);
+            $container->setDefinition('octawire_auth.local_token_validator', $localValidatorDefinition);
+        }
+
+        // Update TokenValidator with validation mode and check_blacklist
+        $tokenValidatorDefinition = $container->getDefinition('octawire_auth.token_validator');
+        $tokenValidatorDefinition->setArguments([
+            new Reference('octawire_auth.client_factory'),
+            $validationMode,
+            $checkBlacklist,
+            in_array($validationMode, ['local', 'hybrid'], true) ? new Reference('octawire_auth.local_token_validator') : null,
+        ]);
     }
 
     /**

@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Kabiroman\Octawire\AuthService\Bundle\Security;
 
+use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
 use Kabiroman\Octawire\AuthService\Bundle\Service\TokenValidator;
+use Kabiroman\Octawire\AuthService\Client\Model\TokenClaims;
+use Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -23,12 +26,17 @@ use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface
 class OctowireTokenAuthenticator extends AbstractAuthenticator implements AuthenticationEntryPointInterface
 {
     private TokenValidator $tokenValidator;
+    private AuthClientFactory $clientFactory;
     private ?string $defaultProjectId;
     private ?string $currentToken = null;
 
-    public function __construct(TokenValidator $tokenValidator, ?string $defaultProjectId = null)
-    {
+    public function __construct(
+        TokenValidator $tokenValidator,
+        AuthClientFactory $clientFactory,
+        ?string $defaultProjectId = null
+    ) {
         $this->tokenValidator = $tokenValidator;
+        $this->clientFactory = $clientFactory;
         $this->defaultProjectId = $defaultProjectId;
     }
 
@@ -55,22 +63,63 @@ class OctowireTokenAuthenticator extends AbstractAuthenticator implements Authen
         // Store token for use in createToken
         $this->currentToken = $token;
 
-        // Try to extract project_id from token, fallback to default
-        $projectId = $this->tokenValidator->extractProjectIdFromToken($token) ?? $this->defaultProjectId;
+        // Extract project_id from token
+        $projectIdFromToken = $this->tokenValidator->extractProjectIdFromToken($token);
+
+        // If project_id found in token - check that it's allowed (whitelist)
+        if ($projectIdFromToken !== null) {
+            if (!$this->clientFactory->hasProject($projectIdFromToken)) {
+                throw new BadCredentialsException(
+                    sprintf(
+                        'Token project ID "%s" is not allowed on this service. ' .
+                        'Allowed project IDs: %s',
+                        $projectIdFromToken,
+                        implode(', ', $this->clientFactory->getProjectIds()) ?: 'none'
+                    )
+                );
+            }
+            $projectId = $projectIdFromToken;
+        } else {
+            // If project_id not found in token - use default
+            $projectId = $this->defaultProjectId;
+
+            if ($projectId === null) {
+                throw new BadCredentialsException(
+                    'Token does not contain project_id and no default_project is configured. ' .
+                    'Please configure default_project or ensure tokens include project_id in claims.'
+                );
+            }
+        }
 
         // Validate token
         $validationResponse = $this->tokenValidator->validateToken($token, $projectId);
 
-        // Extract claims
-        $claims = $validationResponse['claims'] ?? [];
-        $userId = $claims['user_id'] ?? $claims['sub'] ?? '';
+        // Check if token is valid
+        if (!$validationResponse->valid) {
+            throw new BadCredentialsException($validationResponse->error ?? 'Token is invalid.');
+        }
+
+        // Extract claims from ValidateTokenResponse
+        if ($validationResponse->claims === null) {
+            throw new BadCredentialsException('Token claims not found.');
+        }
+
+        // Merge TokenClaims::toArray() with customClaims for flat array
+        $claimsArray = $validationResponse->claims->toArray();
+        $customClaims = $validationResponse->claims->customClaims ?? [];
+        // Remove 'custom_claims' key from claimsArray before merging to avoid duplication
+        unset($claimsArray['custom_claims']);
+        $allClaims = array_merge($claimsArray, $customClaims);
+
+        // Extract user ID
+        $userId = $allClaims['user_id'] ?? $allClaims['sub'] ?? '';
 
         if (empty($userId)) {
             throw new BadCredentialsException('User ID not found in token claims.');
         }
 
         // Create user from claims
-        $user = OctowireUser::fromClaims($claims);
+        $user = OctowireUser::fromClaims($allClaims);
 
         return new SelfValidatingPassport(
             new UserBadge($userId, function () use ($user) {
@@ -92,7 +141,7 @@ class OctowireTokenAuthenticator extends AbstractAuthenticator implements Authen
         $claims = $user->getClaims();
         $jwtToken = $this->currentToken ?? '';
 
-        // Try to extract project_id from token, fallback to default
+        // Extract project_id from token (already validated in authenticate())
         $projectId = $this->tokenValidator->extractProjectIdFromToken($jwtToken) ?? $this->defaultProjectId;
 
         $token = new OctowireToken($jwtToken, $projectId, $claims, $user->getRoles());

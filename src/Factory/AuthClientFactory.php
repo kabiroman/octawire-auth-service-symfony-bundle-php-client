@@ -51,7 +51,12 @@ class AuthClientFactory
 
         if (!in_array($projectId, $this->projectIds, true)) {
             throw new \InvalidArgumentException(
-                sprintf('Project ID "%s" is not configured. Available projects: %s', $projectId, implode(', ', $this->projectIds))
+                sprintf(
+                    'Project ID "%s" is not allowed on this service. ' .
+                    'This service is configured to accept tokens only from the following project IDs: %s',
+                    $projectId,
+                    implode(', ', $this->projectIds) ?: 'none'
+                )
             );
         }
 

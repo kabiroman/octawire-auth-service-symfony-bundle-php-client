@@ -10,6 +10,9 @@ use Kabiroman\Octawire\AuthService\Client\AuthClient;
 use Kabiroman\Octawire\AuthService\Client\Exception\InvalidTokenException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenExpiredException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenRevokedException;
+use Kabiroman\Octawire\AuthService\Client\Model\TokenClaims;
+use Kabiroman\Octawire\AuthService\Client\Request\JWT\ValidateTokenRequest;
+use Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
 use Symfony\Component\Security\Core\Exception\BadCredentialsException;
@@ -64,10 +67,21 @@ class TokenValidatorTest extends TestCase
     {
         $token = 'valid.token';
         $client = $this->createMock(AuthClient::class);
-        $expectedResponse = [
-            'valid' => true,
-            'claims' => ['user_id' => 'user-123', 'role' => 'admin'],
-        ];
+        
+        $tokenClaims = new TokenClaims(
+            userId: 'user-123',
+            tokenType: 'access',
+            issuedAt: time(),
+            expiresAt: time() + 3600,
+            issuer: 'test-issuer',
+            audience: 'test-audience',
+            customClaims: ['role' => 'admin']
+        );
+        
+        $expectedResponse = new ValidateTokenResponse(
+            valid: true,
+            claims: $tokenClaims
+        );
 
         $this->clientFactory
             ->expects($this->once())
@@ -78,16 +92,18 @@ class TokenValidatorTest extends TestCase
         $client
             ->expects($this->once())
             ->method('validateToken')
-            ->with([
-                'token' => $token,
-                'check_blacklist' => true,
-                'jwt_token' => $token,
-            ])
+            ->with(
+                $this->isInstanceOf(ValidateTokenRequest::class),
+                $token
+            )
             ->willReturn($expectedResponse);
 
         $result = $this->tokenValidator->validateToken($token);
 
-        $this->assertEquals($expectedResponse, $result);
+        $this->assertInstanceOf(ValidateTokenResponse::class, $result);
+        $this->assertTrue($result->valid);
+        $this->assertNotNull($result->claims);
+        $this->assertEquals('user-123', $result->claims->userId);
     }
 
     public function testValidateTokenWithProjectId(): void
@@ -95,6 +111,20 @@ class TokenValidatorTest extends TestCase
         $token = 'valid.token';
         $projectId = 'test-project';
         $client = $this->createMock(AuthClient::class);
+        
+        $tokenClaims = new TokenClaims(
+            userId: 'user-123',
+            tokenType: 'access',
+            issuedAt: time(),
+            expiresAt: time() + 3600,
+            issuer: 'test-issuer',
+            audience: 'test-audience'
+        );
+        
+        $expectedResponse = new ValidateTokenResponse(
+            valid: true,
+            claims: $tokenClaims
+        );
 
         $this->clientFactory
             ->expects($this->once())
@@ -105,15 +135,27 @@ class TokenValidatorTest extends TestCase
         $client
             ->expects($this->once())
             ->method('validateToken')
-            ->willReturn(['valid' => true, 'claims' => []]);
+            ->with(
+                $this->isInstanceOf(ValidateTokenRequest::class),
+                $token
+            )
+            ->willReturn($expectedResponse);
 
-        $this->tokenValidator->validateToken($token, $projectId);
+        $result = $this->tokenValidator->validateToken($token, $projectId);
+        
+        $this->assertInstanceOf(ValidateTokenResponse::class, $result);
+        $this->assertTrue($result->valid);
     }
 
     public function testValidateTokenThrowsExceptionForInvalidToken(): void
     {
         $token = 'invalid.token';
         $client = $this->createMock(AuthClient::class);
+        
+        $expectedResponse = new ValidateTokenResponse(
+            valid: false,
+            error: 'Token is invalid'
+        );
 
         $this->clientFactory
             ->expects($this->once())
@@ -123,27 +165,17 @@ class TokenValidatorTest extends TestCase
         $client
             ->expects($this->once())
             ->method('validateToken')
-            ->with([
-                'token' => $token,
-                'check_blacklist' => true,
-                'jwt_token' => $token,
-            ])
-            ->willReturn(['valid' => false]);
+            ->with(
+                $this->isInstanceOf(ValidateTokenRequest::class),
+                $token
+            )
+            ->willReturn($expectedResponse);
 
         // When valid = false, BadCredentialsException is thrown directly
-        // This happens before any catch blocks, so it should be the exception type
-        try {
-            $this->tokenValidator->validateToken($token);
-            $this->fail('Expected BadCredentialsException was not thrown.');
-        } catch (BadCredentialsException $e) {
-            $this->assertEquals('Token is invalid.', $e->getMessage());
-        } catch (\Exception $e) {
-            $this->fail(sprintf(
-                'Expected BadCredentialsException, got %s: %s',
-                get_class($e),
-                $e->getMessage()
-            ));
-        }
+        $this->expectException(BadCredentialsException::class);
+        $this->expectExceptionMessage('Token is invalid');
+
+        $this->tokenValidator->validateToken($token);
     }
 
     public function testValidateTokenHandlesTokenExpiredException(): void
@@ -220,6 +252,138 @@ class TokenValidatorTest extends TestCase
         $this->expectExceptionMessage('Token validation failed.');
 
         $this->tokenValidator->validateToken($token);
+    }
+
+    public function testValidateTokenWithLocalMode(): void
+    {
+        $token = 'valid.token';
+        $localValidator = $this->createMock(\Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator::class);
+        
+        $tokenClaims = new \Kabiroman\Octawire\AuthService\Client\Model\TokenClaims(
+            userId: 'user-123',
+            tokenType: 'access',
+            issuedAt: time(),
+            expiresAt: time() + 3600,
+            issuer: 'test-issuer',
+            audience: 'test-audience'
+        );
+        
+        $expectedResponse = new \Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse(
+            valid: true,
+            claims: $tokenClaims
+        );
+
+        $localValidator
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($token, null)
+            ->willReturn($expectedResponse);
+
+        $validator = new TokenValidator($this->clientFactory, 'local', true, $localValidator);
+        $result = $validator->validateToken($token);
+
+        $this->assertInstanceOf(\Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse::class, $result);
+        $this->assertTrue($result->valid);
+    }
+
+    public function testValidateTokenWithHybridMode(): void
+    {
+        $token = 'valid.token';
+        $localValidator = $this->createMock(\Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator::class);
+        $client = $this->createMock(\Kabiroman\Octawire\AuthService\Client\AuthClient::class);
+        
+        $tokenClaims = new \Kabiroman\Octawire\AuthService\Client\Model\TokenClaims(
+            userId: 'user-123',
+            tokenType: 'access',
+            issuedAt: time(),
+            expiresAt: time() + 3600,
+            issuer: 'test-issuer',
+            audience: 'test-audience'
+        );
+        
+        $localResponse = new \Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse(
+            valid: true,
+            claims: $tokenClaims
+        );
+        
+        $blacklistResponse = new \Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse(
+            valid: true,
+            claims: $tokenClaims
+        );
+
+        $localValidator
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($token, null)
+            ->willReturn($localResponse);
+
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with(null)
+            ->willReturn($client);
+
+        $client
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with(
+                $this->isInstanceOf(\Kabiroman\Octawire\AuthService\Client\Request\JWT\ValidateTokenRequest::class),
+                $token
+            )
+            ->willReturn($blacklistResponse);
+
+        $validator = new TokenValidator($this->clientFactory, 'hybrid', true, $localValidator);
+        $result = $validator->validateToken($token);
+
+        $this->assertInstanceOf(\Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse::class, $result);
+        $this->assertTrue($result->valid);
+    }
+
+    public function testValidateTokenWithHybridModeSkipsBlacklistWhenCheckBlacklistFalse(): void
+    {
+        $token = 'valid.token';
+        $localValidator = $this->createMock(\Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator::class);
+        
+        $tokenClaims = new \Kabiroman\Octawire\AuthService\Client\Model\TokenClaims(
+            userId: 'user-123',
+            tokenType: 'access',
+            issuedAt: time(),
+            expiresAt: time() + 3600,
+            issuer: 'test-issuer',
+            audience: 'test-audience'
+        );
+        
+        $localResponse = new \Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse(
+            valid: true,
+            claims: $tokenClaims
+        );
+
+        $localValidator
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($token, null)
+            ->willReturn($localResponse);
+
+        $this->clientFactory
+            ->expects($this->never())
+            ->method('getClient');
+
+        $validator = new TokenValidator($this->clientFactory, 'hybrid', false, $localValidator);
+        $result = $validator->validateToken($token);
+
+        $this->assertInstanceOf(\Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse::class, $result);
+        $this->assertTrue($result->valid);
+    }
+
+    public function testValidateTokenThrowsExceptionWhenLocalValidatorMissing(): void
+    {
+        $token = 'valid.token';
+        $validator = new TokenValidator($this->clientFactory, 'local', true, null);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('LocalTokenValidator is required for local validation mode.');
+
+        $validator->validateToken($token);
     }
 }
 

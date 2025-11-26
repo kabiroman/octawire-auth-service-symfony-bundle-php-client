@@ -69,7 +69,7 @@ class AuthClientFactoryTest extends TestCase
     public function testGetClientThrowsExceptionWhenProjectNotConfigured(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Project ID "project-3" is not configured');
+        $this->expectExceptionMessage('Project ID "project-3" is not allowed on this service');
 
         $this->factory->getClient('project-3');
     }
