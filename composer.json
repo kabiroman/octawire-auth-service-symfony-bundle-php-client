@@ -1,5 +1,5 @@
 {
-    "name": "kabiroman/octawire-auth-bundle",
+    "name": "kabiroman/octawire-auth-service-php-client-bundle",
     "description": "Symfony Bundle for Octawire Auth Service",
     "type": "symfony-bundle",
     "license": "MIT",
@@ -12,7 +12,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Kabiroman\\Octawire\\AuthBundle\\": "src/"
+            "Kabiroman\\Octawire\\AuthService\\Bundle\\": "src/"
         }
     },
     "extra": {
