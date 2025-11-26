@@ -9,6 +9,8 @@ use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Firebase\JWT\SignatureInvalidException as JWTSignatureInvalidException;
 use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
+use Kabiroman\Octawire\AuthService\Bundle\Service\Cache\InMemoryKeyCache;
+use Kabiroman\Octawire\AuthService\Bundle\Service\Cache\KeyCacheInterface;
 use Kabiroman\Octawire\AuthService\Client\Model\TokenClaims;
 use Kabiroman\Octawire\AuthService\Client\Request\JWT\GetPublicKeyRequest;
 use Kabiroman\Octawire\AuthService\Client\Response\JWT\GetPublicKeyResponse;
@@ -20,16 +22,12 @@ use Kabiroman\Octawire\AuthService\Client\Response\JWT\ValidateTokenResponse;
 class LocalTokenValidator
 {
     private AuthClientFactory $clientFactory;
-    
-    /**
-     * Cache for public keys: projectId_keyId => ['key' => string, 'expires' => int]
-     * @var array<string, array{key: string, expires: int}>
-     */
-    private array $keyCache = [];
+    private KeyCacheInterface $cache;
 
-    public function __construct(AuthClientFactory $clientFactory)
+    public function __construct(AuthClientFactory $clientFactory, ?KeyCacheInterface $cache = null)
     {
         $this->clientFactory = $clientFactory;
+        $this->cache = $cache ?? new InMemoryKeyCache();
     }
 
     /**
@@ -138,13 +136,12 @@ class LocalTokenValidator
         $cacheKey = ($projectId ?? 'default') . '_' . ($keyId ?? 'default');
 
         // Check cache
-        if (isset($this->keyCache[$cacheKey])) {
-            $cached = $this->keyCache[$cacheKey];
+        $cached = $this->cache->get($cacheKey);
+        if ($cached !== null) {
             if ($cached['expires'] > time()) {
                 return $cached['key'];
             }
-            // Cache expired, remove it
-            unset($this->keyCache[$cacheKey]);
+            $this->cache->delete($cacheKey);
         }
 
         try {
@@ -174,19 +171,13 @@ class LocalTokenValidator
             // Cache the primary key
             $primaryKey = $this->findPrimaryKey($response);
             if ($primaryKey !== null) {
-                $this->keyCache[$cacheKey] = [
-                    'key' => $primaryKey->publicKeyPem,
-                    'expires' => $response->cacheUntil
-                ];
+                $this->cache->set($cacheKey, $primaryKey->publicKeyPem, $response->cacheUntil);
                 return $primaryKey->publicKeyPem;
             }
 
             // Fallback to publicKeyPem if no primary key found
             if (!empty($response->publicKeyPem)) {
-                $this->keyCache[$cacheKey] = [
-                    'key' => $response->publicKeyPem,
-                    'expires' => $response->cacheUntil
-                ];
+                $this->cache->set($cacheKey, $response->publicKeyPem, $response->cacheUntil);
                 return $response->publicKeyPem;
             }
 

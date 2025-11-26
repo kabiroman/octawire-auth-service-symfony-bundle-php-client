@@ -4,3 +4,10 @@ composer.lock
 .phpunit.result.cache
 
 .idea/
+
+# TLS certificates and keys
+*.pem
+*.key
+*.crt
+*.cert
+tests/config/tls/

@@ -105,15 +105,24 @@ class OctowireUser implements UserInterface
     private static function extractRolesFromClaims(array $claims): array
     {
         $roles = [];
+        $flattenedClaims = $claims;
+
+        // Merge nested custom claims (snake_case and camelCase) for easier access
+        if (isset($claims['custom_claims']) && is_array($claims['custom_claims'])) {
+            $flattenedClaims = array_merge($flattenedClaims, $claims['custom_claims']);
+        }
+        if (isset($claims['customClaims']) && is_array($claims['customClaims'])) {
+            $flattenedClaims = array_merge($flattenedClaims, $claims['customClaims']);
+        }
 
         // Check for 'roles' claim
-        if (isset($claims['roles']) && is_array($claims['roles'])) {
-            $roles = array_merge($roles, $claims['roles']);
+        if (isset($flattenedClaims['roles']) && is_array($flattenedClaims['roles'])) {
+            $roles = array_merge($roles, $flattenedClaims['roles']);
         }
 
         // Check for 'role' claim (single role)
-        if (isset($claims['role']) && is_string($claims['role'])) {
-            $roles[] = $claims['role'];
+        if (isset($flattenedClaims['role']) && is_string($flattenedClaims['role'])) {
+            $roles[] = $flattenedClaims['role'];
         }
 
         // Add ROLE_USER by default if no roles found

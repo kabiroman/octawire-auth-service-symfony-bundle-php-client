@@ -41,4 +41,24 @@ octawire_auth:
             timeout:
                 connect: 5.0
                 request: 10.0
+        admin-project:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: false
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/dev-ca.crt'
+                    server_name: 'localhost'
+            project_id: 'admin-project'
+            service_auth:
+                service_name: 'kernel-test'
+                service_secret: 'kernel-test-secret'
+            retry:
+                max_attempts: 1
+            key_cache:
+                driver: 'memory'
+                ttl: 60
 

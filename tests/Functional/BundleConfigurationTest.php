@@ -35,6 +35,7 @@ class BundleConfigurationTest extends KernelTestCase
         $this->assertInstanceOf(AuthClientFactory::class, $factory);
         $this->assertEquals('test-project', $factory->getDefaultProjectId());
         $this->assertTrue($factory->hasProject('test-project'));
+        $this->assertTrue($factory->hasProject('admin-project'));
     }
 
     public function testTokenValidatorService(): void
@@ -79,6 +80,18 @@ class BundleConfigurationTest extends KernelTestCase
         $this->assertInstanceOf(AuthClient::class, $client);
     }
 
+    public function testAuthClientCreatedForAdminProject(): void
+    {
+        self::bootKernel();
+
+        $container = self::getContainer();
+        $factory = $container->get('octawire_auth.client_factory');
+
+        $client = $factory->getClient('admin-project');
+
+        $this->assertInstanceOf(AuthClient::class, $client);
+    }
+
     public function testConfigurationLoaded(): void
     {
         self::bootKernel();
@@ -86,7 +99,7 @@ class BundleConfigurationTest extends KernelTestCase
         $container = self::getContainer();
         $factory = $container->get('octawire_auth.client_factory');
 
-        $this->assertEquals(['test-project'], $factory->getProjectIds());
+        $this->assertEqualsCanonicalizing(['test-project', 'admin-project'], $factory->getProjectIds());
         $this->assertEquals('test-project', $factory->getDefaultProjectId());
     }
 }

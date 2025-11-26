@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kabiroman\Octawire\AuthService\Bundle\Tests\Unit\Service;
 
 use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
+use Kabiroman\Octawire\AuthService\Bundle\Service\Cache\KeyCacheInterface;
 use Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator;
 use Kabiroman\Octawire\AuthService\Client\AuthClient;
 use Kabiroman\Octawire\AuthService\Client\Model\PublicKeyInfo;
@@ -84,9 +85,60 @@ class LocalTokenValidatorTest extends TestCase
 
     public function testGetPublicKeyUsesCache(): void
     {
-        // This test would require mocking internal cache, which is private
-        // For now, we test that getPublicKey is called correctly
-        $this->markTestSkipped('Cache testing requires refactoring to make cache testable');
+        $projectId = 'project-1';
+        $keyId = 'key-1';
+        $cache = new TestKeyCache();
+        $validator = new LocalTokenValidator($this->clientFactory, $cache);
+
+        $client = $this->createMock(AuthClient::class);
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with($projectId)
+            ->willReturn($client);
+
+        $response = $this->createGetPublicKeyResponse('PUBLIC_KEY', time() + 300);
+        $client
+            ->expects($this->once())
+            ->method('getPublicKey')
+            ->with($this->isInstanceOf(GetPublicKeyRequest::class))
+            ->willReturn($response);
+
+        $result1 = $this->invokeGetPublicKey($validator, $projectId, $keyId);
+        $result2 = $this->invokeGetPublicKey($validator, $projectId, $keyId);
+
+        $this->assertEquals('PUBLIC_KEY', $result1);
+        $this->assertEquals('PUBLIC_KEY', $result2);
+        $this->assertSame(1, $cache->getHits);
+    }
+
+    public function testGetPublicKeyRefreshesCacheWhenExpired(): void
+    {
+        $projectId = 'project-1';
+        $keyId = 'key-1';
+        $cache = new TestKeyCache();
+        $validator = new LocalTokenValidator($this->clientFactory, $cache);
+
+        $client = $this->createMock(AuthClient::class);
+        $this->clientFactory
+            ->expects($this->exactly(2))
+            ->method('getClient')
+            ->with($projectId)
+            ->willReturn($client);
+
+        $responseExpired = $this->createGetPublicKeyResponse('EXPIRED_KEY', time() - 10);
+        $responseFresh = $this->createGetPublicKeyResponse('FRESH_KEY', time() + 300);
+
+        $client
+            ->expects($this->exactly(2))
+            ->method('getPublicKey')
+            ->willReturnOnConsecutiveCalls($responseExpired, $responseFresh);
+
+        $result1 = $this->invokeGetPublicKey($validator, $projectId, $keyId);
+        $result2 = $this->invokeGetPublicKey($validator, $projectId, $keyId);
+
+        $this->assertEquals('FRESH_KEY', $result2);
+        $this->assertSame(1, $cache->deleteCount);
     }
 
     public function testGetPublicKeyValidatesWhitelist(): void
@@ -147,6 +199,64 @@ class LocalTokenValidatorTest extends TestCase
         $this->assertNotNull($result);
         $this->assertTrue($result->isPrimary);
         $this->assertEquals('primary-key', $result->keyId);
+    }
+
+    private function invokeGetPublicKey(LocalTokenValidator $validator, ?string $projectId, ?string $keyId): ?string
+    {
+        $method = new \ReflectionMethod(LocalTokenValidator::class, 'getPublicKey');
+        $method->setAccessible(true);
+
+        return $method->invoke($validator, $projectId, $keyId);
+    }
+
+    private function createGetPublicKeyResponse(string $publicKey, int $cacheUntil): GetPublicKeyResponse
+    {
+        $primaryKey = [
+            'key_id' => 'key-1',
+            'public_key_pem' => $publicKey,
+            'is_primary' => true,
+            'expires_at' => time() + 600,
+        ];
+
+        return new GetPublicKeyResponse(
+            publicKeyPem: $publicKey,
+            algorithm: 'RS256',
+            keyId: 'key-1',
+            projectId: 'project-1',
+            cacheUntil: $cacheUntil,
+            activeKeys: [$primaryKey]
+        );
+    }
+}
+
+class TestKeyCache implements KeyCacheInterface
+{
+    /**
+     * @var array<string, array{key: string, expires: int}>
+     */
+    private array $storage = [];
+
+    public int $getHits = 0;
+    public int $deleteCount = 0;
+
+    public function get(string $key): ?array
+    {
+        $this->getHits += isset($this->storage[$key]) ? 1 : 0;
+        return $this->storage[$key] ?? null;
+    }
+
+    public function set(string $key, string $publicKey, int $expiresAt): void
+    {
+        $this->storage[$key] = [
+            'key' => $publicKey,
+            'expires' => $expiresAt,
+        ];
+    }
+
+    public function delete(string $key): void
+    {
+        $this->deleteCount++;
+        unset($this->storage[$key]);
     }
 }
 

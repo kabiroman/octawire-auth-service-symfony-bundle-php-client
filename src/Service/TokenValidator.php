@@ -250,11 +250,11 @@ class TokenValidator
             }
 
             return $this->cachedServiceToken;
-        } catch (\Exception $e) {
-            // If service token issuance fails, log and return null
-            error_log('Failed to issue service token: ' . $e->getMessage());
-            return null;
-        }
+               } catch (\Exception $e) {
+                   // If service token issuance fails, surface the error
+                   error_log('Failed to issue service token: ' . $e->getMessage());
+                   throw new AuthenticationException('Service authentication failed: ' . $e->getMessage(), 0, $e);
+               }
     }
 }
 
