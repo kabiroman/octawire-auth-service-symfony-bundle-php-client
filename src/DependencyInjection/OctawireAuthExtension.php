@@ -42,14 +42,14 @@ class OctawireAuthExtension extends Extension
             $configServiceId = sprintf('octawire_auth.config.%s', $projectId);
             $configDefinition = new Definition(Config::class);
             $configDefinition->setArguments([$this->buildConfigArray($projectConfig)]);
-            $configDefinition->setPublic(false);
+            $configDefinition->setPublic(true);
             $container->setDefinition($configServiceId, $configDefinition);
 
             // Create AuthClient instance
             $clientId = sprintf('octawire_auth.client.%s', $projectId);
             $clientDefinition = new Definition(AuthClient::class);
             $clientDefinition->setArguments([new Reference($configServiceId)]);
-            $clientDefinition->setPublic(false);
+            $clientDefinition->setPublic(true);
             $container->setDefinition($clientId, $clientDefinition);
         }
 
