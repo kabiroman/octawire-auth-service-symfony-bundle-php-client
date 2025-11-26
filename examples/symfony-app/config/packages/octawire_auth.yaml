@@ -1,7 +1,8 @@
 octawire_auth:
-    default_project: 'project-1'  # Проект по умолчанию
+    # Используйте реальные UUID проектов из конфигурации Auth Service
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
     projects:
-        project-1:
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:
             transport: 'tcp'
             tcp:
                 host: 'localhost'
@@ -13,8 +14,10 @@ octawire_auth:
                     # cert_file: '%kernel.project_dir%/config/tls/client.crt'  # для mTLS
                     # key_file: '%kernel.project_dir%/config/tls/client.key'  # для mTLS
                     # server_name: 'auth-service.example.com'
-            project_id: 'project-1'
-            api_key: '%env(AUTH_API_KEY)%'
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+            service_auth:
+                service_name: 'symfony-app'
+                service_secret: '%env(AUTH_SERVICE_SECRET)%'
             retry:
                 max_attempts: 3
                 initial_backoff: 0.1
@@ -26,7 +29,7 @@ octawire_auth:
             timeout:
                 connect: 10.0
                 request: 30.0
-        project-2:
+        018fd6d2-91da-7c77-b40d-abcdef012345:
             transport: 'tcp'
             tcp:
                 host: 'auth.example.com'
@@ -36,7 +39,10 @@ octawire_auth:
                     enabled: true
                     ca_file: '%kernel.project_dir%/config/tls/ca.crt'
                     server_name: 'auth.example.com'
-            project_id: 'project-2'
+            project_id: '018fd6d2-91da-7c77-b40d-abcdef012345'
+            service_auth:
+                service_name: 'internal-api'
+                service_secret: '%env(AUTH_SERVICE_SECRET_INTERNAL)%'
             retry:
                 max_attempts: 3
             key_cache:

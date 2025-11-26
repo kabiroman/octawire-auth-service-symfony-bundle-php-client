@@ -16,8 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration now uses `tcp.host` and `tcp.port` instead of `address`
 - TLS configuration moved to `tcp.tls` section
 - Updated examples to use TCP transport (port 50052)
+- `octawire_auth.config.*` и `octawire_auth.client.*` сервисы объявлены публичными для корректной работы в тестовых контейнерах Symfony
 
 ### Added
+- Support for `service_auth` configuration (service_name/service_secret) и автоматическая выдача service-token с кешированием до истечения `exp`
+- Integration tests on otus_project2 ядре с real Auth Service (remote/local/hybrid)
+- README clarifications: `project_id`/`default_project` - UUID из Auth Service, примеры TLS/mTLS + service auth
+- TESTING_PLAN.md с покрытием: service tokens, local cache, multi-project, TLS/mTLS
 - Support for `ValidateTokenRequest` and `ValidateTokenResponse` DTOs
 - Support for `TokenClaims` DTO for type-safe claims handling
 - Improved error messages with error codes from `ValidateTokenResponse`

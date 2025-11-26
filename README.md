@@ -37,9 +37,10 @@ return [
 
 ```yaml
 octawire_auth:
-    default_project: 'project-1'  # Проект по умолчанию
+    # Значения default_project и project_id — это UUID проектов, заданные в конфигурации Auth Service
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
     projects:
-        project-1:
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:
             transport: 'tcp'
             tcp:
                 host: 'localhost'
@@ -50,14 +51,14 @@ octawire_auth:
                     # ca_file: '%kernel.project_dir%/config/tls/ca.crt'
                     # cert_file: '%kernel.project_dir%/config/tls/client.crt'  # для mTLS
                     # key_file: '%kernel.project_dir%/config/tls/client.key'  # для mTLS
-            project_id: 'project-1'
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
             api_key: '%env(AUTH_API_KEY)%'
             retry:
                 max_attempts: 3
             key_cache:
                 driver: 'memory'
                 ttl: 3600
-        project-2:
+        018fd6d2-91da-7c77-b40d-abcdef012345:
             transport: 'tcp'
             tcp:
                 host: 'auth.example.com'
@@ -67,7 +68,10 @@ octawire_auth:
                     enabled: true
                     ca_file: '%kernel.project_dir%/config/tls/ca.crt'
                     server_name: 'auth.example.com'
-            project_id: 'project-2'
+            project_id: '018fd6d2-91da-7c77-b40d-abcdef012345'
+            service_auth:
+                service_name: 'api-gateway'
+                service_secret: '%env(AUTH_SERVICE_SECRET)%'
 ```
 
 ### 3. Настройте Security
@@ -156,43 +160,43 @@ Bundle поддерживает работу с несколькими прое�
 
 ```yaml
 octawire_auth:
-    default_project: 'api-v1'  # Проект по умолчанию
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'  # Проект по умолчанию (UUID)
     projects:
-        api-v1:  # Токены для API v1 (RS256)
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:  # Токены для API v1 (RS256)
             transport: 'tcp'
             tcp:
                 host: 'auth.example.com'
                 port: 50052
-            project_id: 'api-v1'
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
             key_cache:
                 driver: 'memory'
                 ttl: 3600
         
-        api-v2:  # Токены для API v2 (ES256)
+        018fd6d2-91da-7c77-b40d-abcdef012345:  # Токены для API v2 (ES256)
             transport: 'tcp'
             tcp:
                 host: 'auth.example.com'
                 port: 50052
-            project_id: 'api-v2'
+            project_id: '018fd6d2-91da-7c77-b40d-abcdef012345'
             key_cache:
                 driver: 'memory'
                 ttl: 3600
         
-        internal:  # Внутренние токены (HS256)
+        018fd6d2-9acd-7d71-bf1d-fedcba987654:  # Внутренние токены (HS256)
             transport: 'tcp'
             tcp:
                 host: 'auth-internal.example.com'
                 port: 50052
-            project_id: 'internal'
+            project_id: '018fd6d2-9acd-7d71-bf1d-fedcba987654'
             key_cache:
                 driver: 'redis'
                 ttl: 3600
 ```
 
 **Поведение:**
-- Сервис будет принимать токены только с `project_id: api-v1`, `api-v2` или `internal`
-- Токены с другими `project_id` будут отклонены с ошибкой: `Token project ID "unknown-project" is not allowed on this service`
-- Если токен не содержит `project_id` в claims, используется `default_project` (api-v1)
+- Сервис будет принимать токены только с перечисленными UUID
+- Токены с другими `project_id` будут отклонены с ошибкой: `Token project ID "..."`
+- Если токен не содержит `project_id` в claims, используется `default_project`
 - Если токен не содержит `project_id` и `default_project` не настроен, токен будет отклонен
 
 #### Логика выбора project_id
@@ -294,7 +298,10 @@ class MyService
   - `host` (обязательно) - хост TCP сервера
   - `port` (обязательно) - порт TCP сервера (по умолчанию 50052)
   - `persistent` (опционально, по умолчанию true) - использовать persistent соединения
-- `project_id` (обязательно) - ID проекта
+- `project_id` (обязательно) - UUID проекта, выданный Auth Service
+- `service_auth` (опционально) - параметры межсервисной аутентификации:
+  - `service_name` — имя сервиса (должно совпадать с whitelist на Auth Service)
+  - `service_secret` — секрет сервиса, используемый для выдачи service-token
 - `api_key` (опционально) - API ключ для аутентификации
 - `tcp.tls` - настройки TLS/mTLS для TCP соединения
   - `enabled` - включить TLS (обязательно для production)
@@ -319,6 +326,8 @@ class MyService
 - `timeout` - настройки таймаутов
   - `connect` - таймаут подключения (секунды)
   - `request` - таймаут запроса (секунды)
+
+> Bundle автоматически запрашивает service-token через `issueServiceToken`, кеширует его до истечения `exp` и переиспользует для удалённых проверок (remote/hybrid/blacklist). Некорректный секрет, неразрешённый `service_name` или истекший токен приводят к отказу аутентификации. При включённом `tcp.tls.enabled` рекомендуется указывать `server_name` и CA файлы; для mTLS добавьте `cert_file`/`key_file`.
 
 ## Обработка ошибок
 
