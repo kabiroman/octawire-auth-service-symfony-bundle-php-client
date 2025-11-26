@@ -130,7 +130,296 @@ cd services/auth-service/clients/php/otus_project2
 | `Connection closed by server` / `Failed to connect to localhost:50052` | Проверьте, что Auth Service запущен, порт 50052 свободен, TLS в конфиге клиента указывает на корректные файлы. |
 | `service auth failed` | Причина — Auth Service не поднят или не принимает соединение (таймаут). В текущей версии неверные секреты не распознаются. |
 
-## 5. Полезные команды
+## 5. Примеры конфигурации и кода
+
+### 5.1 Конфигурация бандла (`config/packages/octawire_auth.yaml`)
+
+Базовая конфигурация с TLS и service auth:
+
+```yaml
+octawire_auth:
+    default_project: 'test-project'
+    projects:
+        test-project:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/dev-ca.crt'
+                    cert_file: '%kernel.project_dir%/config/tls/client.crt'
+                    key_file: '%kernel.project_dir%/config/tls/client.key'
+                    server_name: 'localhost'
+            project_id: 'test-project'
+            service_auth:
+                service_name: 'test-service'
+                service_secret: 'test-service-secret-123'
+            retry:
+                max_attempts: 3
+                initial_backoff: 0.1
+                max_backoff: 5.0
+            key_cache:
+                driver: 'memory'
+                ttl: 3600
+                max_size: 100
+            timeout:
+                connect: 10.0
+                request: 30.0
+        admin-project:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/dev-ca.crt'
+                    cert_file: '%kernel.project_dir%/config/tls/client.crt'
+                    key_file: '%kernel.project_dir%/config/tls/client.key'
+                    server_name: 'localhost'
+            project_id: 'admin-project'
+            service_auth:
+                service_name: 'internal-api'
+                service_secret: 'internal-api-secret-789'
+            retry:
+                max_attempts: 3
+            key_cache:
+                driver: 'memory'
+                ttl: 3600
+```
+
+### 5.2 Конфигурация Security (`config/packages/security.yaml`)
+
+```yaml
+security:
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
+
+    providers:
+        octawire_user_provider:
+            id: octawire_auth.user_provider
+
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/
+            security: false
+        test:
+            pattern: ^/test
+            stateless: true
+            custom_authenticators:
+                - octawire_auth.authenticator
+            provider: octawire_user_provider
+
+    access_control:
+        - { path: ^/test/public, roles: PUBLIC_ACCESS }
+        - { path: ^/test/protected, roles: ROLE_USER }
+        - { path: ^/test/admin, roles: ROLE_ADMIN }
+        - { path: ^/test, roles: ROLE_USER }
+
+    role_hierarchy:
+        ROLE_ADMIN: ROLE_USER
+```
+
+### 5.3 Пример контроллера
+
+```php
+<?php
+
+namespace App\Controller;
+
+use Kabiroman\Octawire\AuthService\Bundle\Security\OctowireUser;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
+
+class TestController extends AbstractController
+{
+    #[Route('/test/public', name: 'test_public', methods: ['GET'])]
+    public function public(): JsonResponse
+    {
+        return new JsonResponse([
+            'message' => 'This is a public endpoint',
+            'user' => $this->getUser() ? 'authenticated' : 'anonymous',
+        ]);
+    }
+
+    #[Route('/test/protected', name: 'test_protected', methods: ['GET'])]
+    #[IsGranted('ROLE_USER')]
+    public function protected(): JsonResponse
+    {
+        $user = $this->getUser();
+
+        return new JsonResponse([
+            'message' => 'This is a protected endpoint',
+            'user' => $user instanceof OctowireUser ? [
+                'id' => $user->getUserId(),
+                'identifier' => $user->getUserIdentifier(),
+                'roles' => $user->getRoles(),
+                'claims' => $user->getClaims(),
+            ] : null,
+        ]);
+    }
+
+    #[Route('/test/admin', name: 'test_admin', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function admin(): JsonResponse
+    {
+        $user = $this->getUser();
+
+        return new JsonResponse([
+            'message' => 'This is an admin endpoint',
+            'user' => $user instanceof OctowireUser ? [
+                'id' => $user->getUserId(),
+                'roles' => $user->getRoles(),
+            ] : null,
+        ]);
+    }
+
+    #[Route('/test/user-info', name: 'test_user_info', methods: ['GET'])]
+    #[IsGranted('ROLE_USER')]
+    public function userInfo(): JsonResponse
+    {
+        $user = $this->getUser();
+
+        if (!$user instanceof OctowireUser) {
+            return new JsonResponse(['error' => 'User not found'], 401);
+        }
+
+        return new JsonResponse([
+            'user_id' => $user->getUserId(),
+            'user_identifier' => $user->getUserIdentifier(),
+            'roles' => $user->getRoles(),
+            'all_claims' => $user->getClaims(),
+            'custom_claim' => $user->getClaim('custom', 'not_found'),
+        ]);
+    }
+}
+```
+
+### 5.4 Пример интеграционного теста
+
+```php
+<?php
+
+namespace App\Tests\Integration;
+
+use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\HttpFoundation\Response;
+
+class BundleIntegrationTest extends WebTestCase
+{
+    private ?string $testToken = null;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Выпуск тестового токена через AuthClient
+        $this->testToken = $this->issueTestToken();
+    }
+
+    public function testProtectedEndpointWithValidToken(): void
+    {
+        if (!$this->testToken) {
+            $this->markTestSkipped('No test token available');
+        }
+
+        $client = static::createClient();
+        $client->request('GET', '/test/protected', [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $this->testToken,
+        ]);
+
+        $this->assertResponseIsSuccessful();
+        $response = json_decode($client->getResponse()->getContent(), true);
+        $this->assertArrayHasKey('user', $response);
+        $this->assertNotNull($response['user']);
+    }
+
+    public function testAdminEndpointWithAdminProjectToken(): void
+    {
+        $adminToken = $this->issueTokenForProject('admin-project', [
+            'role' => 'ROLE_ADMIN',
+            'email' => 'admin@example.com',
+        ]);
+
+        if (!$adminToken) {
+            $this->markTestSkipped('Could not issue admin project token');
+        }
+
+        $client = static::createClient();
+        $client->request('GET', '/test/admin', [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $adminToken,
+        ]);
+
+        $this->assertResponseIsSuccessful();
+    }
+
+    public function testProtectedEndpointRejectsUnlistedProjectToken(): void
+    {
+        $foreignToken = $this->issueTokenForProject('unlisted-project', [
+            'role' => 'user',
+        ]);
+
+        if (!$foreignToken) {
+            $this->markTestSkipped('Could not issue token for unlisted project');
+        }
+
+        $client = static::createClient();
+        $client->request('GET', '/test/protected', [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $foreignToken,
+        ]);
+
+        $this->assertResponseStatusCodeSame(Response::HTTP_UNAUTHORIZED);
+        $response = json_decode($client->getResponse()->getContent(), true);
+        $this->assertStringContainsString(
+            'not allowed',
+            $response['message'] ?? $response['error'] ?? ''
+        );
+    }
+}
+```
+
+### 5.5 Конфигурации для разных тестовых окружений
+
+#### `config/packages/test/octawire_auth.yaml` (основная)
+
+Используется по умолчанию в тестовом окружении. Содержит валидные TLS сертификаты и корректные service auth credentials.
+
+#### `config/packages/test_invalid_secret/octawire_auth.yaml` (неверный секрет)
+
+```yaml
+octawire_auth:
+    default_project: 'test-project'
+    projects:
+        test-project:
+            # ... остальная конфигурация ...
+            service_auth:
+                service_name: 'test-service'
+                service_secret: 'invalid-secret'  # Неверный секрет
+```
+
+#### `config/packages/test_wrong_tls/octawire_auth.yaml` (неверный TLS)
+
+```yaml
+octawire_auth:
+    default_project: 'test-project'
+    projects:
+        test-project:
+            # ... остальная конфигурация ...
+            tls:
+                enabled: true
+                required: true
+                ca_file: '%kernel.project_dir%/config/tls/invalid-ca.crt'  # Неверный CA
+                cert_file: '%kernel.project_dir%/config/tls/client.crt'
+                key_file: '%kernel.project_dir%/config/tls/client.key'
+                server_name: 'localhost'
+```
+
+## 6. Полезные команды
 
 ```bash
 # Запустить только тесты TLS
@@ -138,6 +427,36 @@ cd services/auth-service/clients/php/otus_project2
 
 # Прогнать юнит-тесты с Xdebug coverage
 XDEBUG_MODE=coverage vendor/bin/phpunit --testsuite unit --coverage-text
+
+# Запустить конкретный интеграционный тест
+cd services/auth-service/clients/php/otus_project2
+./bin/phpunit --filter testAdminEndpointWithAdminProjectToken tests/Integration/BundleIntegrationTest.php
+```
+
+## 7. Структура тестового приложения (otus_project2)
+
+```
+otus_project2/
+├── config/
+│   ├── packages/
+│   │   ├── octawire_auth.yaml          # Основная конфигурация
+│   │   ├── security.yaml                # Security firewall
+│   │   ├── test/                        # Тестовое окружение
+│   │   │   └── octawire_auth.yaml
+│   │   ├── test_invalid_secret/         # Окружение с неверным секретом
+│   │   │   └── octawire_auth.yaml
+│   │   └── test_wrong_tls/              # Окружение с неверным TLS
+│   │       └── octawire_auth.yaml
+│   └── tls/                             # TLS сертификаты (в .gitignore)
+│       ├── dev-ca.crt
+│       ├── client.crt
+│       └── client.key
+├── src/
+│   └── Controller/
+│       └── TestController.php           # Тестовые эндпоинты
+└── tests/
+    └── Integration/
+        └── BundleIntegrationTest.php    # Интеграционные тесты
 ```
 
 ---

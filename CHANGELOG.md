@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2025-11-26
+
+### Изменено
+- Обновлена зависимость от `kabiroman/octawire-auth-service-php-client` до версии `^0.9.2`
+- Улучшена совместимость с исправлениями TLS соединений в PHP клиенте версии 0.9.2
+
+### Исправлено
+- Улучшена обработка кастомных claims в токенах благодаря обновлению PHP клиента до 0.9.2
+- Исправлена работа с JWT ID в стандартных ключах токенов
+
+## [0.9.1] - 2025-11-25
+
 ### Changed
 - **BREAKING**: Migrated to typed DTO API (requires PHP client v0.9.1+)
   - `TokenValidator::validateToken()` now returns `ValidateTokenResponse` instead of `array`
