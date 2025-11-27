@@ -33,10 +33,19 @@ class OctawireAuthExtension extends Extension
         // Register AuthClient for each project
         $projects = $config['projects'] ?? [];
         $projectIds = [];
+        $serviceAuthMap = [];
 
         foreach ($projects as $projectName => $projectConfig) {
             $projectId = $projectConfig['project_id'];
             $projectIds[] = $projectId;
+
+            // Collect service auth per project
+            if (isset($projectConfig['service_auth'])) {
+                $serviceAuthMap[$projectId] = [
+                    'service_name' => $projectConfig['service_auth']['service_name'] ?? null,
+                    'service_secret' => $projectConfig['service_auth']['service_secret'] ?? null,
+                ];
+            }
 
             // Create Config instance
             $configServiceId = sprintf('octawire_auth.config.%s', $projectId);
@@ -68,16 +77,11 @@ class OctawireAuthExtension extends Extension
         $validationMode = $config['validation_mode'] ?? 'remote';
         $checkBlacklist = $config['check_blacklist'] ?? true;
 
-        // Extract service auth from first project config (service auth is per-project)
-        $serviceName = null;
-        $serviceSecret = null;
-        if (!empty($projects)) {
-            $firstProjectConfig = reset($projects);
-            if (isset($firstProjectConfig['service_auth'])) {
-                $serviceName = $firstProjectConfig['service_auth']['service_name'] ?? null;
-                $serviceSecret = $firstProjectConfig['service_auth']['service_secret'] ?? null;
-            }
-        }
+        // Register ServiceAuthProvider with per-project service auth mapping
+        $serviceAuthProviderDefinition = new Definition(\Kabiroman\Octawire\AuthService\Bundle\Service\ServiceAuthProvider::class);
+        $serviceAuthProviderDefinition->setArguments([$serviceAuthMap]);
+        $serviceAuthProviderDefinition->setPublic(false);
+        $container->setDefinition('octawire_auth.service_auth_provider', $serviceAuthProviderDefinition);
 
         // Register LocalTokenValidator if needed (local or hybrid mode)
         if (in_array($validationMode, ['local', 'hybrid'], true)) {
@@ -89,15 +93,14 @@ class OctawireAuthExtension extends Extension
             $container->setDefinition('octawire_auth.local_token_validator', $localValidatorDefinition);
         }
 
-        // Update TokenValidator with validation mode, check_blacklist, and service auth
+        // Update TokenValidator with validation mode, check_blacklist, and service auth provider
         $tokenValidatorDefinition = $container->getDefinition('octawire_auth.token_validator');
         $tokenValidatorDefinition->setArguments([
             new Reference('octawire_auth.client_factory'),
             $validationMode,
             $checkBlacklist,
             in_array($validationMode, ['local', 'hybrid'], true) ? new Reference('octawire_auth.local_token_validator') : null,
-            $serviceName,
-            $serviceSecret,
+            new Reference('octawire_auth.service_auth_provider'),
         ]);
     }
 
@@ -146,6 +149,11 @@ class OctawireAuthExtension extends Extension
 
         if (isset($projectConfig['timeout'])) {
             $config['timeout'] = $projectConfig['timeout'];
+        }
+
+        // Service authentication
+        if (isset($projectConfig['service_auth']['service_secret'])) {
+            $config['service_secret'] = $projectConfig['service_auth']['service_secret'];
         }
 
         return $config;

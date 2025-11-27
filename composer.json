@@ -2,7 +2,7 @@
     "name": "kabiroman/octawire-auth-service-php-client-bundle",
     "description": "Symfony Bundle for Octawire Auth Service",
     "type": "symfony-bundle",
-    "version": "0.9.2",
+    "version": "0.9.3",
     "license": "MIT",
     "require": {
         "php": "^8.1",
@@ -10,7 +10,7 @@
         "symfony/dependency-injection": "^6.4|^7.0",
         "symfony/http-kernel": "^6.4|^7.0",
         "symfony/security-core": "^6.4|^7.0",
-        "kabiroman/octawire-auth-service-php-client": "^0.9.2",
+        "kabiroman/octawire-auth-service-php-client": "^0.9.3",
         "firebase/php-jwt": "^6.0"
     },
     "require-dev": {

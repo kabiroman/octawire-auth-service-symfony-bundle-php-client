@@ -788,6 +788,112 @@ redis:
     password: '%env(REDIS_PASSWORD)%'
 ```
 
+## Кейсы подключения
+
+Bundle поддерживает 4 кейса подключения в зависимости от окружения и настроек сервиса:
+
+### 1. PROD + service_auth=false (TLS обязателен, без service auth)
+
+**Когда использовать:** Production окружение без service authentication (используется API key или публичные методы).
+
+```yaml
+# config/packages/prod/octawire_auth.yaml
+octawire_auth:
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+    projects:
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:
+            transport: 'tcp'
+            tcp:
+                host: 'auth-service.example.com'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/ca.crt'
+                    server_name: 'auth-service.example.com'
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+            api_key: '%env(AUTH_API_KEY)%'  # Опционально, для методов требующих аутентификации
+            # service_auth не указан
+```
+
+### 2. PROD + service_auth=true (TLS обязателен + service authentication)
+
+**Когда использовать:** Production окружение с service authentication для межсервисной коммуникации.
+
+```yaml
+# config/packages/prod/octawire_auth.yaml
+octawire_auth:
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+    projects:
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:
+            transport: 'tcp'
+            tcp:
+                host: 'auth-service.example.com'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/ca.crt'
+                    cert_file: '%kernel.project_dir%/config/tls/client.crt'  # для mTLS
+                    key_file: '%kernel.project_dir%/config/tls/client.key'  # для mTLS
+                    server_name: 'auth-service.example.com'
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+            service_auth:
+                service_name: 'api-gateway'
+                service_secret: '%env(API_GATEWAY_SERVICE_SECRET)%'
+```
+
+### 3. DEV + service_auth=false (TLS опционален, без service auth)
+
+**Когда использовать:** Development окружение без service authentication.
+
+```yaml
+# config/packages/dev/octawire_auth.yaml
+octawire_auth:
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+    projects:
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: false  # TLS опционален в DEV
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+            # service_auth не указан
+```
+
+### 4. DEV + service_auth=true (TLS опционален + service authentication)
+
+**Когда использовать:** Development окружение с service authentication для тестирования межсервисной коммуникации.
+
+```yaml
+# config/packages/dev/octawire_auth.yaml
+octawire_auth:
+    default_project: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+    projects:
+        018fd6d2-8bda-7c61-b01d-12d6eddb02af:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: false  # TLS опционален в DEV
+            project_id: '018fd6d2-8bda-7c61-b01d-12d6eddb02af'
+            service_auth:
+                service_name: 'dev-service'
+                service_secret: 'dev-service-secret-abc123'  # для service authentication
+```
+
+**Важно:**
+- В production всегда используйте TLS (`tcp.tls.enabled: true`, `tcp.tls.required: true`)
+- Service secrets должны храниться в переменных окружения, не в конфигурационных файлах
+- Каждый проект может иметь свой собственный `service_name` и `service_secret`
+
 ## Проверка конфигурации
 
 После настройки проверьте, что все работает:

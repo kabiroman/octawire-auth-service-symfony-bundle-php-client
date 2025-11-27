@@ -6,6 +6,8 @@ namespace Kabiroman\Octawire\AuthService\Bundle\Service;
 
 use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
 use Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator;
+use Kabiroman\Octawire\AuthService\Bundle\Service\ServiceAuthProvider;
+use Kabiroman\Octawire\AuthService\Client\Exception\AuthException;
 use Kabiroman\Octawire\AuthService\Client\Exception\InvalidTokenException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenExpiredException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenRevokedException;
@@ -24,25 +26,26 @@ class TokenValidator
     private string $validationMode;
     private bool $checkBlacklist;
     private ?LocalTokenValidator $localValidator;
-    private ?string $serviceName;
-    private ?string $serviceSecret;
-    private ?string $cachedServiceToken = null;
-    private ?int $serviceTokenExpiresAt = null;
+    private ServiceAuthProvider $serviceAuthProvider;
+    /**
+     * Per-project cached service tokens: project_id -> ['token' => string, 'expires_at' => int]
+     *
+     * @var array<string, array{token: string, expires_at: int}>
+     */
+    private array $cachedServiceTokens = [];
 
     public function __construct(
         AuthClientFactory $clientFactory,
         string $validationMode = 'remote',
         bool $checkBlacklist = true,
         ?LocalTokenValidator $localValidator = null,
-        ?string $serviceName = null,
-        ?string $serviceSecret = null
+        ?ServiceAuthProvider $serviceAuthProvider = null
     ) {
         $this->clientFactory = $clientFactory;
         $this->validationMode = $validationMode;
         $this->checkBlacklist = $checkBlacklist;
         $this->localValidator = $localValidator;
-        $this->serviceName = $serviceName;
-        $this->serviceSecret = $serviceSecret;
+        $this->serviceAuthProvider = $serviceAuthProvider ?? new ServiceAuthProvider();
     }
 
     /**
@@ -212,49 +215,74 @@ class TokenValidator
      */
     private function getServiceToken($client, ?string $projectId): ?string
     {
-        // If service auth is not configured, return null (will use apiKey from config)
-        if ($this->serviceName === null || $this->serviceSecret === null) {
+        // If project_id is not provided, cannot get service auth
+        if ($projectId === null) {
             return null;
         }
 
+        // Get service auth for this project
+        $serviceAuth = $this->serviceAuthProvider->getServiceAuth($projectId);
+        if ($serviceAuth === null) {
+            // Service auth is not configured for this project, return null (will use apiKey from config)
+            return null;
+        }
+
+        $serviceName = $serviceAuth['service_name'];
+        $serviceSecret = $serviceAuth['service_secret'];
+
         // Check if cached token is still valid (with 60 seconds buffer)
-        if ($this->cachedServiceToken !== null && $this->serviceTokenExpiresAt !== null) {
-            if (time() < ($this->serviceTokenExpiresAt - 60)) {
-                return $this->cachedServiceToken;
+        if (isset($this->cachedServiceTokens[$projectId])) {
+            $cached = $this->cachedServiceTokens[$projectId];
+            if (time() < ($cached['expires_at'] - 60)) {
+                return $cached['token'];
             }
         }
 
         // Issue new service token
         try {
             $request = new IssueServiceTokenRequest(
-                sourceService: $this->serviceName,
+                sourceService: $serviceName,
                 projectId: $projectId
             );
 
-            $response = $client->issueServiceToken($request, $this->serviceSecret);
+            $response = $client->issueServiceToken($request, $serviceSecret);
 
-            // Cache the token
-            $this->cachedServiceToken = $response->accessToken;
-            
             // Parse token to get expiration (with fallback to 1 hour)
+            $expiresAt = time() + 3600;
             try {
                 $parts = explode('.', $response->accessToken);
                 if (count($parts) === 3) {
                     $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
-                    $this->serviceTokenExpiresAt = $payload['exp'] ?? (time() + 3600);
-                } else {
-                    $this->serviceTokenExpiresAt = time() + 3600;
+                    $expiresAt = $payload['exp'] ?? (time() + 3600);
                 }
             } catch (\Exception $e) {
-                $this->serviceTokenExpiresAt = time() + 3600;
+                // Use default expiration
             }
 
-            return $this->cachedServiceToken;
-               } catch (\Exception $e) {
-                   // If service token issuance fails, surface the error
-                   error_log('Failed to issue service token: ' . $e->getMessage());
-                   throw new AuthenticationException('Service authentication failed: ' . $e->getMessage(), 0, $e);
-               }
+            // Cache the token per project
+            $this->cachedServiceTokens[$projectId] = [
+                'token' => $response->accessToken,
+                'expires_at' => $expiresAt,
+            ];
+
+            return $response->accessToken;
+        } catch (AuthException $e) {
+            // Special handling for AUTH_FAILED error code
+            if ($e->getErrorCode() === 'AUTH_FAILED') {
+                error_log('Service authentication failed: Invalid service credentials (service_name: ' . $serviceName . ', project_id: ' . $projectId . ')');
+                throw new AuthenticationException(
+                    'Service authentication failed: Invalid service credentials. Check service_name and service_secret configuration for project ' . $projectId . '.',
+                    0,
+                    $e
+                );
+            }
+            error_log('Failed to issue service token: ' . $e->getMessage());
+            throw new AuthenticationException('Service authentication failed: ' . $e->getMessage(), 0, $e);
+        } catch (\Exception $e) {
+            // If service token issuance fails, surface the error
+            error_log('Failed to issue service token: ' . $e->getMessage());
+            throw new AuthenticationException('Service authentication failed: ' . $e->getMessage(), 0, $e);
+        }
     }
 }
 

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2025-01-XX
+
+### Изменено
+- Обновлена зависимость от `kabiroman/octawire-auth-service-php-client` до версии `^0.9.3`
+- **BREAKING**: Изменена архитектура service authentication - теперь поддерживается per-project service authentication
+  - Удалены глобальные параметры `service_name` и `service_secret` из TokenValidator
+  - Добавлен сервис `ServiceAuthProvider` для управления service auth на уровне проекта
+  - Каждый проект может иметь свой собственный `service_name` и `service_secret`
+
+### Добавлено
+- Поддержка передачи `service_secret` в конфигурацию базового клиента через `buildConfigArray()`
+- Сервис `ServiceAuthProvider` для управления service authentication credentials per project
+- Улучшенная обработка ошибки `AUTH_FAILED` при выдаче service token с понятными сообщениями об ошибках
+- Per-project кэширование service tokens (каждый проект имеет свой кэш токена)
+
+### Исправлено
+- Исправлена обработка `AUTH_FAILED` ошибки - теперь проверяется код ошибки и выбрасывается понятное исключение
+- Исправлена передача `service_secret` в базовый клиент - теперь он корректно передается из конфигурации проекта
+- Улучшена обработка ошибок service authentication с указанием project_id в сообщениях об ошибках
+
+### Соответствие спецификациям
+- Полное соответствие спецификации SECURITY.md по service authentication
+- Полное соответствие спецификации JATP_METHODS_1.0.json по обработке кодов ошибок
+
 ## [0.9.2] - 2025-11-26
 
 ### Изменено

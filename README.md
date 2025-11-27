@@ -331,6 +331,151 @@ class MyService
 
 > Bundle автоматически запрашивает service-token через `issueServiceToken`, кеширует его до истечения `exp` и переиспользует для удалённых проверок (remote/hybrid/blacklist). Некорректный секрет, неразрешённый `service_name` или истекший токен приводят к отказу аутентификации. При включённом `tcp.tls.enabled` рекомендуется указывать `server_name` и CA файлы; для mTLS добавьте `cert_file`/`key_file`.
 
+## Service Authentication
+
+Service Authentication используется для межсервисной аутентификации при вызове методов Auth Service (например, `ValidateToken`). Это дополнительный слой защиты поверх TLS/mTLS.
+
+### Настройка
+
+Service authentication настраивается **per-project** - каждый проект может иметь свой собственный `service_name` и `service_secret`:
+
+```yaml
+octawire_auth:
+    projects:
+        project-1:
+            project_id: 'project-1'
+            service_auth:
+                service_name: 'api-gateway'
+                service_secret: '%env(API_GATEWAY_SERVICE_SECRET)%'
+        project-2:
+            project_id: 'project-2'
+            service_auth:
+                service_name: 'internal-api'
+                service_secret: '%env(INTERNAL_API_SERVICE_SECRET)%'
+```
+
+### Как это работает
+
+1. Bundle автоматически определяет `project_id` из токена или использует `default_project`
+2. Для каждого `project_id` используется соответствующий `service_name` и `service_secret` из конфигурации
+3. При необходимости валидации токена Bundle автоматически выдает service token используя `IssueServiceToken`
+4. Service token кэшируется per-project до истечения `exp`
+5. Service token используется для аутентификации при вызове методов Auth Service
+
+### Обработка ошибок
+
+При неудачной валидации service credentials сервер возвращает ошибку `AUTH_FAILED`:
+
+- Bundle автоматически обрабатывает `AUTH_FAILED` и выбрасывает `AuthenticationException` с понятным сообщением
+- В логах записывается информация о project_id и service_name для отладки
+- Ошибка указывает на необходимость проверки конфигурации `service_name` и `service_secret` для конкретного проекта
+
+### Безопасное хранение секретов
+
+**Важно:**
+- Не храните `service_secret` в коде или конфигурациях
+- Используйте переменные окружения и secrets manager
+- Ротируйте секреты и используйте разные значения для окружений
+- Отзывайте скомпрометированные секреты немедленно
+
+**Рекомендации:**
+```yaml
+octawire_auth:
+    projects:
+        project-1:
+            project_id: 'project-1'
+            service_auth:
+                service_name: 'api-gateway'
+                service_secret: '%env(API_GATEWAY_SERVICE_SECRET)%'  # Используйте переменные окружения
+```
+
+### Кейсы подключения
+
+Bundle поддерживает 4 кейса подключения согласно конфигурациям сервиса:
+
+1. **PROD + service_auth=false**: TLS обязателен (tcp.tls.enabled=true, tcp.tls.required=true), без service auth
+2. **PROD + service_auth=true**: TLS обязателен + service authentication
+3. **DEV + service_auth=false**: TLS опционален (tcp.tls.enabled=false), без service auth
+4. **DEV + service_auth=true**: TLS опционален + service authentication
+
+**Пример 1: PROD + service_auth=false**
+```yaml
+octawire_auth:
+    projects:
+        project-1:
+            transport: 'tcp'
+            tcp:
+                host: 'auth-service.example.com'
+                port: 50052
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/ca.crt'
+                    server_name: 'auth-service.example.com'
+            project_id: 'project-1'
+            # service_auth не указан
+```
+
+**Пример 2: PROD + service_auth=true**
+```yaml
+octawire_auth:
+    projects:
+        project-1:
+            transport: 'tcp'
+            tcp:
+                host: 'auth-service.example.com'
+                port: 50052
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/ca.crt'
+                    cert_file: '%kernel.project_dir%/config/tls/client.crt'  # для mTLS
+                    key_file: '%kernel.project_dir%/config/tls/client.key'  # для mTLS
+                    server_name: 'auth-service.example.com'
+            project_id: 'project-1'
+            service_auth:
+                service_name: 'api-gateway'
+                service_secret: '%env(API_GATEWAY_SERVICE_SECRET)%'
+```
+
+**Пример 3: DEV + service_auth=false**
+```yaml
+octawire_auth:
+    projects:
+        project-1:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                tls:
+                    enabled: false  # TLS опционален в DEV
+            project_id: 'project-1'
+            # service_auth не указан
+```
+
+**Пример 4: DEV + service_auth=true**
+```yaml
+octawire_auth:
+    projects:
+        project-1:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                tls:
+                    enabled: false  # TLS опционален в DEV
+            project_id: 'project-1'
+            service_auth:
+                service_name: 'dev-service'
+                service_secret: 'dev-service-secret-abc123'  # для service authentication
+```
+
+### Соответствие спецификациям
+
+Bundle полностью соответствует:
+- **SECURITY.md** - требованиям по service authentication и безопасному хранению секретов
+- **JATP_METHODS_1.0.json** - обработке всех кодов ошибок, включая `AUTH_FAILED`
+
 ## Обработка ошибок
 
 Bundle автоматически обрабатывает ошибки валидации токенов:
