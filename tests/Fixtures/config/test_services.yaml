@@ -32,6 +32,9 @@ octawire_auth:
                 tls:
                     enabled: false
             project_id: 'test-project'
+            service_auth:
+                service_name: 'test-service'
+                service_secret: 'test-service-secret'
             retry:
                 max_attempts: 1
             key_cache:

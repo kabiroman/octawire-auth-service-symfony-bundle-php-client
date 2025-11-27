@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kabiroman\Octawire\AuthService\Bundle\Tests\Functional;
 
 use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
+use Kabiroman\Octawire\AuthService\Bundle\Service\ServiceAuthProvider;
 use Kabiroman\Octawire\AuthService\Bundle\Service\TokenValidator;
 use Kabiroman\Octawire\AuthService\Bundle\Security\OctowireTokenAuthenticator;
 use Kabiroman\Octawire\AuthService\Bundle\Security\OctowireUserProvider;
@@ -23,6 +24,7 @@ class BundleConfigurationTest extends KernelTestCase
         $this->assertTrue($container->has('octawire_auth.token_validator'));
         $this->assertTrue($container->has('octawire_auth.authenticator'));
         $this->assertTrue($container->has('octawire_auth.user_provider'));
+        $this->assertTrue($container->has('octawire_auth.service_auth_provider'));
     }
 
     public function testAuthClientFactoryService(): void
@@ -101,6 +103,24 @@ class BundleConfigurationTest extends KernelTestCase
 
         $this->assertEqualsCanonicalizing(['test-project', 'admin-project'], $factory->getProjectIds());
         $this->assertEquals('test-project', $factory->getDefaultProjectId());
+    }
+
+    public function testServiceAuthProviderService(): void
+    {
+        self::bootKernel();
+
+        $container = self::getContainer();
+        $serviceAuthProvider = $container->get('octawire_auth.service_auth_provider');
+
+        $this->assertInstanceOf(ServiceAuthProvider::class, $serviceAuthProvider);
+        
+        // Check that service auth is configured for test projects
+        $this->assertTrue($serviceAuthProvider->hasServiceAuth('test-project'));
+        $this->assertTrue($serviceAuthProvider->hasServiceAuth('admin-project'));
+        
+        // Check service names
+        $this->assertEquals('test-service', $serviceAuthProvider->getServiceName('test-project'));
+        $this->assertEquals('internal-api', $serviceAuthProvider->getServiceName('admin-project'));
     }
 }
 

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Kabiroman\Octawire\AuthService\Bundle\Tests\Unit\Service;
 
 use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
+use Kabiroman\Octawire\AuthService\Bundle\Service\ServiceAuthProvider;
 use Kabiroman\Octawire\AuthService\Bundle\Service\TokenValidator;
 use Kabiroman\Octawire\AuthService\Client\AuthClient;
+use Kabiroman\Octawire\AuthService\Client\Exception\AuthException;
 use Kabiroman\Octawire\AuthService\Client\Exception\InvalidTokenException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenExpiredException;
 use Kabiroman\Octawire\AuthService\Client\Exception\TokenRevokedException;
@@ -259,6 +261,7 @@ class TokenValidatorTest extends TestCase
     public function testValidateTokenUsesServiceTokenCache(): void
     {
         $token = 'valid.token';
+        $projectId = 'test-project';
         $client = $this->createMock(AuthClient::class);
         $serviceToken = $this->createJwtToken(['exp' => time() + 3600]);
         $claims = $this->createTokenClaims();
@@ -271,10 +274,17 @@ class TokenValidatorTest extends TestCase
             keyId: 'key-1'
         );
 
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
+
         $this->clientFactory
             ->expects($this->exactly(2))
             ->method('getClient')
-            ->with(null)
+            ->with($projectId)
             ->willReturn($client);
 
         $client
@@ -297,12 +307,11 @@ class TokenValidatorTest extends TestCase
             'remote',
             true,
             null,
-            'symfony-app',
-            'secret'
+            $serviceAuthProvider
         );
 
-        $validator->validateToken($token);
-        $validator->validateToken($token);
+        $validator->validateToken($token, $projectId);
+        $validator->validateToken($token, $projectId);
     }
 
     public function testValidateTokenSkipsServiceTokenWhenNotConfigured(): void
@@ -310,6 +319,8 @@ class TokenValidatorTest extends TestCase
         $token = 'valid.token';
         $client = $this->createMock(AuthClient::class);
         $expectedResponse = new ValidateTokenResponse(valid: true, claims: $this->createTokenClaims());
+
+        $serviceAuthProvider = new ServiceAuthProvider([]); // Empty provider
 
         $this->clientFactory
             ->expects($this->once())
@@ -323,19 +334,27 @@ class TokenValidatorTest extends TestCase
             ->with($this->isInstanceOf(ValidateTokenRequest::class), null)
             ->willReturn($expectedResponse);
 
-        $validator = new TokenValidator($this->clientFactory, 'remote', true, null, null, null);
+        $validator = new TokenValidator($this->clientFactory, 'remote', true, null, $serviceAuthProvider);
         $validator->validateToken($token);
     }
 
     public function testValidateTokenThrowsWhenServiceNotAllowed(): void
     {
         $token = 'valid.token';
+        $projectId = 'test-project';
         $client = $this->createMock(AuthClient::class);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
 
         $this->clientFactory
             ->expects($this->once())
             ->method('getClient')
-            ->with(null)
+            ->with($projectId)
             ->willReturn($client);
 
         $client
@@ -344,27 +363,37 @@ class TokenValidatorTest extends TestCase
             ->willThrowException(new \RuntimeException('service not allowed'));
 
         $client
-            ->expects($this->once())
-            ->method('validateToken')
-            ->with($this->isInstanceOf(ValidateTokenRequest::class), null)
-            ->willReturn(new ValidateTokenResponse(valid: true, claims: $this->createTokenClaims()));
+            ->expects($this->never())
+            ->method('validateToken');
 
-        $validator = new TokenValidator($this->clientFactory, 'remote', true, null, 'symfony-app', 'secret');
-        $validator->validateToken($token);
+        $validator = new TokenValidator($this->clientFactory, 'remote', true, null, $serviceAuthProvider);
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Service authentication failed: service not allowed');
+
+        $validator->validateToken($token, $projectId);
     }
 
     public function testValidateTokenThrowsWhenServiceTokenExpired(): void
     {
         $token = 'valid.token';
+        $projectId = 'test-project';
         $client = $this->createMock(AuthClient::class);
         $expiredServiceToken = $this->createJwtToken(['exp' => time() - 10]);
         $nextServiceToken = $this->createJwtToken(['exp' => time() + 3600]);
         $expectedResponse = new ValidateTokenResponse(valid: true, claims: $this->createTokenClaims());
 
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
+
         $this->clientFactory
             ->expects($this->exactly(2))
             ->method('getClient')
-            ->with(null)
+            ->with($projectId)
             ->willReturn($client);
 
         $client
@@ -386,25 +415,33 @@ class TokenValidatorTest extends TestCase
                 return $expectedResponse;
             });
 
-        $validator = new TokenValidator($this->clientFactory, 'remote', true, null, 'symfony-app', 'secret');
-        $validator->validateToken($token);
-        $validator->validateToken($token);
+        $validator = new TokenValidator($this->clientFactory, 'remote', true, null, $serviceAuthProvider);
+        $validator->validateToken($token, $projectId);
+        $validator->validateToken($token, $projectId);
     }
 
 
     public function testValidateTokenReissuesServiceTokenWhenExpiringSoon(): void
     {
         $token = 'valid.token';
+        $projectId = 'test-project';
         $client = $this->createMock(AuthClient::class);
         $claims = $this->createTokenClaims();
         $expectedResponse = new ValidateTokenResponse(valid: true, claims: $claims);
         $soonExpiringToken = $this->createJwtToken(['exp' => time() + 30]);
         $newToken = $this->createJwtToken(['exp' => time() + 3600]);
 
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
+
         $this->clientFactory
             ->expects($this->exactly(2))
             ->method('getClient')
-            ->with(null)
+            ->with($projectId)
             ->willReturn($client);
 
         $client
@@ -432,25 +469,30 @@ class TokenValidatorTest extends TestCase
             'remote',
             true,
             null,
-            'symfony-app',
-            'secret'
+            $serviceAuthProvider
         );
 
-        $validator->validateToken($token);
-        $validator->validateToken($token);
+        $validator->validateToken($token, $projectId);
+        $validator->validateToken($token, $projectId);
     }
 
-    public function testValidateTokenFallsBackWhenServiceTokenIssuanceFails(): void
+    public function testValidateTokenThrowsWhenServiceTokenIssuanceFails(): void
     {
         $token = 'valid.token';
+        $projectId = 'test-project';
         $client = $this->createMock(AuthClient::class);
-        $claims = $this->createTokenClaims();
-        $expectedResponse = new ValidateTokenResponse(valid: true, claims: $claims);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
 
         $this->clientFactory
             ->expects($this->once())
             ->method('getClient')
-            ->with(null)
+            ->with($projectId)
             ->willReturn($client);
 
         $client
@@ -460,24 +502,21 @@ class TokenValidatorTest extends TestCase
             ->willThrowException(new \RuntimeException('service auth failed'));
 
         $client
-            ->expects($this->once())
-            ->method('validateToken')
-            ->with(
-                $this->isInstanceOf(ValidateTokenRequest::class),
-                null
-            )
-            ->willReturn($expectedResponse);
+            ->expects($this->never())
+            ->method('validateToken');
 
         $validator = new TokenValidator(
             $this->clientFactory,
             'remote',
             true,
             null,
-            'symfony-app',
-            'secret'
+            $serviceAuthProvider
         );
 
-        $validator->validateToken($token);
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Service authentication failed: service auth failed');
+
+        $validator->validateToken($token, $projectId);
     }
 
     public function testValidateTokenWithLocalMode(): void
@@ -610,6 +649,404 @@ class TokenValidatorTest extends TestCase
         $this->expectExceptionMessage('LocalTokenValidator is required for local validation mode.');
 
         $validator->validateToken($token);
+    }
+
+    public function testValidateTokenHandlesAUTH_FAILEDException(): void
+    {
+        $token = 'valid.token';
+        $projectId = 'test-project';
+        $client = $this->createMock(AuthClient::class);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'invalid-secret',
+            ],
+        ]);
+
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with($projectId)
+            ->willReturn($client);
+
+        $authException = new AuthException(
+            'Invalid service credentials',
+            403,
+            null,
+            'AUTH_FAILED',
+            []
+        );
+
+        $client
+            ->expects($this->once())
+            ->method('issueServiceToken')
+            ->willThrowException($authException);
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'remote',
+            true,
+            null,
+            $serviceAuthProvider
+        );
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Service authentication failed: Invalid service credentials. Check service_name and service_secret configuration for project ' . $projectId . '.');
+
+        $validator->validateToken($token, $projectId);
+    }
+
+    public function testValidateTokenWithPerProjectServiceAuth(): void
+    {
+        $token = 'valid.token';
+        $project1Id = 'project-1';
+        $project2Id = 'project-2';
+        $client1 = $this->createMock(AuthClient::class);
+        $client2 = $this->createMock(AuthClient::class);
+        
+        $serviceToken1 = $this->createJwtToken(['exp' => time() + 3600]);
+        $serviceToken2 = $this->createJwtToken(['exp' => time() + 3600]);
+        $claims = $this->createTokenClaims();
+        $expectedResponse = new ValidateTokenResponse(valid: true, claims: $claims);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $project1Id => [
+                'service_name' => 'api-gateway',
+                'service_secret' => 'secret-1',
+            ],
+            $project2Id => [
+                'service_name' => 'internal-api',
+                'service_secret' => 'secret-2',
+            ],
+        ]);
+
+        // First project
+        $this->clientFactory
+            ->expects($this->exactly(2))
+            ->method('getClient')
+            ->willReturnCallback(function ($projectId) use ($project1Id, $project2Id, $client1, $client2) {
+                if ($projectId === $project1Id) {
+                    return $client1;
+                }
+                if ($projectId === $project2Id) {
+                    return $client2;
+                }
+                return $client1;
+            });
+
+        $client1
+            ->expects($this->once())
+            ->method('issueServiceToken')
+            ->with(
+                $this->callback(function ($request) use ($project1Id) {
+                    return $request instanceof IssueServiceTokenRequest
+                        && $request->sourceService === 'api-gateway'
+                        && $request->projectId === $project1Id;
+                }),
+                'secret-1'
+            )
+            ->willReturn(new IssueTokenResponse($serviceToken1, 'refresh', time() + 3600, time() + 7200, 'key-1'));
+
+        $client1
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($this->isInstanceOf(ValidateTokenRequest::class), $serviceToken1)
+            ->willReturn($expectedResponse);
+
+        // Second project
+        $client2
+            ->expects($this->once())
+            ->method('issueServiceToken')
+            ->with(
+                $this->callback(function ($request) use ($project2Id) {
+                    return $request instanceof IssueServiceTokenRequest
+                        && $request->sourceService === 'internal-api'
+                        && $request->projectId === $project2Id;
+                }),
+                'secret-2'
+            )
+            ->willReturn(new IssueTokenResponse($serviceToken2, 'refresh', time() + 3600, time() + 7200, 'key-1'));
+
+        $client2
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($this->isInstanceOf(ValidateTokenRequest::class), $serviceToken2)
+            ->willReturn($expectedResponse);
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'remote',
+            true,
+            null,
+            $serviceAuthProvider
+        );
+
+        // Validate with first project
+        $result1 = $validator->validateToken($token, $project1Id);
+        $this->assertTrue($result1->valid);
+
+        // Validate with second project
+        $result2 = $validator->validateToken($token, $project2Id);
+        $this->assertTrue($result2->valid);
+    }
+
+    public function testValidateTokenReturnsNullServiceTokenWhenProjectIdIsNull(): void
+    {
+        $token = 'valid.token';
+        $client = $this->createMock(AuthClient::class);
+        $expectedResponse = new ValidateTokenResponse(valid: true, claims: $this->createTokenClaims());
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            'test-project' => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
+
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with(null)
+            ->willReturn($client);
+
+        // Should not call issueServiceToken when projectId is null
+        $client
+            ->expects($this->never())
+            ->method('issueServiceToken');
+
+        $client
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($this->isInstanceOf(ValidateTokenRequest::class), null)
+            ->willReturn($expectedResponse);
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'remote',
+            true,
+            null,
+            $serviceAuthProvider
+        );
+
+        $result = $validator->validateToken($token, null);
+        $this->assertTrue($result->valid);
+    }
+
+    public function testValidateTokenUsesCachedServiceTokenPerProject(): void
+    {
+        $token = 'valid.token';
+        $project1Id = 'project-1';
+        $project2Id = 'project-2';
+        $client = $this->createMock(AuthClient::class);
+        
+        $serviceToken1 = $this->createJwtToken(['exp' => time() + 3600]);
+        $serviceToken2 = $this->createJwtToken(['exp' => time() + 3600]);
+        $claims = $this->createTokenClaims();
+        $expectedResponse = new ValidateTokenResponse(valid: true, claims: $claims);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $project1Id => [
+                'service_name' => 'api-gateway',
+                'service_secret' => 'secret-1',
+            ],
+            $project2Id => [
+                'service_name' => 'internal-api',
+                'service_secret' => 'secret-2',
+            ],
+        ]);
+
+        $this->clientFactory
+            ->expects($this->exactly(4))
+            ->method('getClient')
+            ->willReturn($client);
+
+        // Each project should issue service token only once (cached for second call)
+        $client
+            ->expects($this->exactly(2))
+            ->method('issueServiceToken')
+            ->willReturnCallback(function ($request, $secret) use ($project1Id, $project2Id, $serviceToken1, $serviceToken2) {
+                if ($request->projectId === $project1Id && $secret === 'secret-1') {
+                    return new IssueTokenResponse($serviceToken1, 'refresh', time() + 3600, time() + 7200, 'key-1');
+                }
+                if ($request->projectId === $project2Id && $secret === 'secret-2') {
+                    return new IssueTokenResponse($serviceToken2, 'refresh', time() + 3600, time() + 7200, 'key-1');
+                }
+                throw new \RuntimeException('Unexpected call');
+            });
+
+        // Each project should validate twice (using cached tokens)
+        $client
+            ->expects($this->exactly(4))
+            ->method('validateToken')
+            ->willReturnCallback(function ($request, $jwtToken) use ($serviceToken1, $serviceToken2, $expectedResponse) {
+                if ($jwtToken === $serviceToken1 || $jwtToken === $serviceToken2) {
+                    return $expectedResponse;
+                }
+                return $expectedResponse;
+            });
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'remote',
+            true,
+            null,
+            $serviceAuthProvider
+        );
+
+        // Validate with project 1 twice (should cache)
+        $validator->validateToken($token, $project1Id);
+        $validator->validateToken($token, $project1Id);
+
+        // Validate with project 2 twice (should cache separately)
+        $validator->validateToken($token, $project2Id);
+        $validator->validateToken($token, $project2Id);
+    }
+
+    public function testValidateTokenHandlesAuthExceptionWithNonAUTH_FAILEDCode(): void
+    {
+        $token = 'valid.token';
+        $projectId = 'test-project';
+        $client = $this->createMock(AuthClient::class);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
+
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with($projectId)
+            ->willReturn($client);
+
+        $authException = new AuthException(
+            'Some other auth error',
+            500,
+            null,
+            'ERROR_INTERNAL',
+            []
+        );
+
+        $client
+            ->expects($this->once())
+            ->method('issueServiceToken')
+            ->willThrowException($authException);
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'remote',
+            true,
+            null,
+            $serviceAuthProvider
+        );
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Service authentication failed: Some other auth error');
+
+        $validator->validateToken($token, $projectId);
+    }
+
+    public function testValidateTokenWithHybridModeUsesServiceTokenForBlacklistCheck(): void
+    {
+        $token = 'valid.token';
+        $projectId = 'test-project';
+        $localValidator = $this->createMock(\Kabiroman\Octawire\AuthService\Bundle\Service\LocalTokenValidator::class);
+        $client = $this->createMock(AuthClient::class);
+        
+        $tokenClaims = $this->createTokenClaims();
+        $localResponse = new ValidateTokenResponse(valid: true, claims: $tokenClaims);
+        $blacklistResponse = new ValidateTokenResponse(valid: true, claims: $tokenClaims);
+        $serviceToken = $this->createJwtToken(['exp' => time() + 3600]);
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            $projectId => [
+                'service_name' => 'symfony-app',
+                'service_secret' => 'secret',
+            ],
+        ]);
+
+        $localValidator
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($token, $projectId)
+            ->willReturn($localResponse);
+
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with($projectId)
+            ->willReturn($client);
+
+        $client
+            ->expects($this->once())
+            ->method('issueServiceToken')
+            ->willReturn(new IssueTokenResponse($serviceToken, 'refresh', time() + 3600, time() + 7200, 'key-1'));
+
+        $client
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with(
+                $this->isInstanceOf(ValidateTokenRequest::class),
+                $serviceToken
+            )
+            ->willReturn($blacklistResponse);
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'hybrid',
+            true,
+            $localValidator,
+            $serviceAuthProvider
+        );
+
+        $result = $validator->validateToken($token, $projectId);
+        $this->assertTrue($result->valid);
+    }
+
+    public function testValidateTokenSkipsServiceTokenWhenProjectIdNotInProvider(): void
+    {
+        $token = 'valid.token';
+        $projectId = 'non-configured-project';
+        $client = $this->createMock(AuthClient::class);
+        $expectedResponse = new ValidateTokenResponse(valid: true, claims: $this->createTokenClaims());
+
+        $serviceAuthProvider = new ServiceAuthProvider([
+            'other-project' => [
+                'service_name' => 'other-service',
+                'service_secret' => 'other-secret',
+            ],
+        ]);
+
+        $this->clientFactory
+            ->expects($this->once())
+            ->method('getClient')
+            ->with($projectId)
+            ->willReturn($client);
+
+        // Should not call issueServiceToken when project is not in provider
+        $client
+            ->expects($this->never())
+            ->method('issueServiceToken');
+
+        $client
+            ->expects($this->once())
+            ->method('validateToken')
+            ->with($this->isInstanceOf(ValidateTokenRequest::class), null)
+            ->willReturn($expectedResponse);
+
+        $validator = new TokenValidator(
+            $this->clientFactory,
+            'remote',
+            true,
+            null,
+            $serviceAuthProvider
+        );
+
+        $result = $validator->validateToken($token, $projectId);
+        $this->assertTrue($result->valid);
     }
 
     private function createTokenClaims(): TokenClaims
