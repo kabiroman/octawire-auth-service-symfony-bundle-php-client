@@ -5,12 +5,12 @@ Symfony Bundle для интеграции PHP клиента Octawire Auth Serv
 ## Требования
 
 - PHP 8.1+
-- Symfony 7.0+
-- `kabiroman/octawire-auth-service-php-client` ^0.9.1
+- Symfony 6.4+ / 7.0+
+- `kabiroman/octawire-auth-service-php-client` ^0.9.4
 - `ext-sockets` (для TCP соединений)
 - `ext-json` (для JSON обработки)
 
-> **Важно:** Bundle использует TCP/JATP транспорт, **не требует gRPC extension**.
+> **Важно:** Bundle использует TCP/JATP транспорт (Protocol v1.0), **не требует gRPC extension**.
 
 ## Установка
 
@@ -273,6 +273,7 @@ octawire_auth:
 
 ```php
 use Kabiroman\Octawire\AuthService\Bundle\Factory\AuthClientFactory;
+use Kabiroman\Octawire\AuthService\Client\Request\JWT\IssueTokenRequest;
 
 class MyService
 {
@@ -280,13 +281,23 @@ class MyService
         private AuthClientFactory $clientFactory
     ) {}
 
-    public function issueToken(string $userId): array
+    public function issueToken(string $userId, string $projectId): string
     {
-        $client = $this->clientFactory->getClient('project-1');
-        return $client->issueToken([
-            'user_id' => $userId,
-            'claims' => ['role' => 'admin'],
-        ]);
+        $client = $this->clientFactory->getClient($projectId);
+        
+        // v0.9.4+: используйте DTO с именованными параметрами
+        $request = new IssueTokenRequest(
+            userId: $userId,
+            projectId: $projectId,
+            claims: ['role' => 'admin'],
+            accessTokenTtl: 3600,
+            refreshTokenTtl: 86400
+        );
+        
+        $response = $client->issueToken($request);
+        
+        // v0.9.4: expiresIn (секунды) вместо accessTokenExpiresAt (timestamp)
+        return $response->accessToken;
     }
 }
 ```
@@ -475,6 +486,81 @@ octawire_auth:
 Bundle полностью соответствует:
 - **SECURITY.md** - требованиям по service authentication и безопасному хранению секретов
 - **JATP_METHODS_1.0.json** - обработке всех кодов ошибок, включая `AUTH_FAILED`
+- **Auth Service Protocol v1.0** - camelCase JSON поля
+
+## Изменения в v0.9.4 (Protocol v1.0)
+
+### camelCase JSON поля
+
+Начиная с v0.9.4, все JSON поля используют camelCase вместо snake_case:
+
+| Старое (snake_case) | Новое (camelCase) |
+|---------------------|-------------------|
+| `user_id` | `userId` |
+| `project_id` | `projectId` |
+| `token_type` | `tokenType` |
+| `custom_claims` | `customClaims` |
+| `access_token` | `accessToken` |
+| `expires_in` | `expiresIn` |
+
+**Обратная совместимость:** Bundle автоматически поддерживает оба формата для входящих данных.
+
+### Изменения в DTO
+
+**HealthCheckResponse:**
+```php
+// Было (v0.9.3):
+$response->healthy  // bool
+
+// Стало (v0.9.4):
+$response->status   // string: "healthy", "degraded", "unhealthy"
+$response->isHealthy()  // bool (helper method)
+```
+
+**IssueTokenResponse / RefreshTokenResponse:**
+```php
+// Было (v0.9.3):
+$response->accessTokenExpiresAt  // int (timestamp)
+
+// Стало (v0.9.4):
+$response->expiresIn        // int (секунды TTL)
+$response->refreshExpiresIn // int (секунды TTL)
+```
+
+**ValidateTokenRequest:**
+```php
+// v0.9.4: projectId обязателен
+$request = new ValidateTokenRequest(
+    token: $token,
+    projectId: $projectId,  // Обязательно!
+    checkBlacklist: true
+);
+```
+
+### Миграция с v0.9.3
+
+1. Обновите зависимость:
+   ```bash
+   composer require kabiroman/octawire-auth-service-php-client:^0.9.4
+   ```
+
+2. При использовании `HealthCheckResponse`:
+   ```php
+   // Замените:
+   if ($response->healthy) { ... }
+   // На:
+   if ($response->status === 'healthy') { ... }
+   // Или:
+   if ($response->isHealthy()) { ... }
+   ```
+
+3. При использовании `expiresAt`:
+   ```php
+   // Замените:
+   $expiresAt = $response->accessTokenExpiresAt;
+   // На:
+   $expiresAt = time() + $response->expiresIn;
+   ```
 
 ## Обработка ошибок
 
@@ -488,7 +574,25 @@ Bundle автоматически обрабатывает ошибки вали
 
 ## Примеры
 
-Полные примеры использования находятся в директории `examples/`.
+Полные примеры использования находятся в директории `examples/`:
+
+- `examples/symfony-app/` - пример Symfony приложения
+- `examples/integration-tests/` - примеры интеграционных тестов с Auth Service
+
+### Быстрый старт тестирования
+
+```bash
+# 1. Запустить Auth Service
+./auth-service --config config/config.test.local.json
+
+# 2. Тест клиента
+php examples/integration-tests/test-client-integration.php
+
+# 3. HTTP тест (требует Symfony сервер)
+php examples/integration-tests/test-http-integration.php
+```
+
+Подробнее: [TESTING.md](TESTING.md)
 
 ## Лицензия
 

@@ -56,6 +56,31 @@ class TokenValidatorTest extends TestCase
         $this->assertEquals('test-project', $result);
     }
 
+    public function testExtractProjectIdFromValidTokenCamelCase(): void
+    {
+        // v0.9.4+ uses camelCase 'projectId'
+        $payload = json_encode(['projectId' => 'test-project-camel', 'userId' => 'user-123']);
+        $encodedPayload = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($payload));
+        $token = 'header.' . $encodedPayload . '.signature';
+
+        $result = $this->tokenValidator->extractProjectIdFromToken($token);
+
+        $this->assertEquals('test-project-camel', $result);
+    }
+
+    public function testExtractProjectIdCamelCasePriority(): void
+    {
+        // When both projectId and project_id present, projectId (camelCase) takes priority
+        $payload = json_encode(['projectId' => 'camel-project', 'project_id' => 'snake-project']);
+        $encodedPayload = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($payload));
+        $token = 'header.' . $encodedPayload . '.signature';
+
+        $result = $this->tokenValidator->extractProjectIdFromToken($token);
+
+        // camelCase should take priority
+        $this->assertEquals('camel-project', $result);
+    }
+
     public function testExtractProjectIdFromTokenWithAudClaim(): void
     {
         $payload = json_encode(['aud' => 'test-project-aud', 'user_id' => 'user-123']);
@@ -269,6 +294,7 @@ class TokenValidatorTest extends TestCase
         $serviceTokenResponse = new IssueTokenResponse(
             accessToken: $serviceToken,
             refreshToken: 'refresh',
+            expiresIn: 3600,
             accessTokenExpiresAt: time() + 3600,
             refreshTokenExpiresAt: time() + 7200,
             keyId: 'key-1'
@@ -400,8 +426,8 @@ class TokenValidatorTest extends TestCase
             ->expects($this->exactly(2))
             ->method('issueServiceToken')
             ->willReturnOnConsecutiveCalls(
-                new IssueTokenResponse($expiredServiceToken, 'refresh', time() - 10, time() + 100, 'key-1'),
-                new IssueTokenResponse($nextServiceToken, 'refresh', time() + 3600, time() + 7200, 'key-1')
+                new IssueTokenResponse($expiredServiceToken, 'refresh', 3600, time() - 10, time() + 100, 0, 'key-1'),
+                new IssueTokenResponse($nextServiceToken, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1')
             );
 
         $expectedTokens = [$expiredServiceToken, $nextServiceToken];
@@ -449,8 +475,8 @@ class TokenValidatorTest extends TestCase
             ->method('issueServiceToken')
             ->with($this->isInstanceOf(IssueServiceTokenRequest::class), 'secret')
             ->willReturnOnConsecutiveCalls(
-                new IssueTokenResponse($soonExpiringToken, 'refresh', time() + 30, time() + 60, 'key-1'),
-                new IssueTokenResponse($newToken, 'refresh', time() + 3600, time() + 7200, 'key-1')
+                new IssueTokenResponse($soonExpiringToken, 'refresh', 30, time() + 30, time() + 60, 0, 'key-1'),
+                new IssueTokenResponse($newToken, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1')
             );
 
         $expectedTokens = [$soonExpiringToken, $newToken];
@@ -746,7 +772,7 @@ class TokenValidatorTest extends TestCase
                 }),
                 'secret-1'
             )
-            ->willReturn(new IssueTokenResponse($serviceToken1, 'refresh', time() + 3600, time() + 7200, 'key-1'));
+            ->willReturn(new IssueTokenResponse($serviceToken1, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1'));
 
         $client1
             ->expects($this->once())
@@ -766,7 +792,7 @@ class TokenValidatorTest extends TestCase
                 }),
                 'secret-2'
             )
-            ->willReturn(new IssueTokenResponse($serviceToken2, 'refresh', time() + 3600, time() + 7200, 'key-1'));
+            ->willReturn(new IssueTokenResponse($serviceToken2, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1'));
 
         $client2
             ->expects($this->once())
@@ -867,10 +893,10 @@ class TokenValidatorTest extends TestCase
             ->method('issueServiceToken')
             ->willReturnCallback(function ($request, $secret) use ($project1Id, $project2Id, $serviceToken1, $serviceToken2) {
                 if ($request->projectId === $project1Id && $secret === 'secret-1') {
-                    return new IssueTokenResponse($serviceToken1, 'refresh', time() + 3600, time() + 7200, 'key-1');
+                    return new IssueTokenResponse($serviceToken1, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1');
                 }
                 if ($request->projectId === $project2Id && $secret === 'secret-2') {
-                    return new IssueTokenResponse($serviceToken2, 'refresh', time() + 3600, time() + 7200, 'key-1');
+                    return new IssueTokenResponse($serviceToken2, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1');
                 }
                 throw new \RuntimeException('Unexpected call');
             });
@@ -983,7 +1009,7 @@ class TokenValidatorTest extends TestCase
         $client
             ->expects($this->once())
             ->method('issueServiceToken')
-            ->willReturn(new IssueTokenResponse($serviceToken, 'refresh', time() + 3600, time() + 7200, 'key-1'));
+            ->willReturn(new IssueTokenResponse($serviceToken, 'refresh', 3600, time() + 3600, time() + 7200, 0, 'key-1'));
 
         $client
             ->expects($this->once())

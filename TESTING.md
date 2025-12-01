@@ -1,6 +1,30 @@
 # Руководство по тестированию Octawire Auth Service Symfony Bundle
 
-Документ описывает всю процедуру проверки бандла: от локальных юнит‑тестов до интеграционных прогонов на `otus_project2` с запущенным Go‑сервисом.
+Документ описывает всю процедуру проверки бандла: от локальных юнит‑тестов до интеграционных прогонов с запущенным Go‑сервисом.
+
+## Quick Start: Integration Testing
+
+Для быстрой проверки работоспособности Bundle с реальным Auth Service используйте примеры из `examples/integration-tests/`:
+
+```bash
+# 1. Запустить Auth Service (без TLS, без auth)
+cd /path/to/services/auth-service
+./auth-service --config config/config.test.local.json
+
+# 2. Запустить тест клиента (проверка подключения к Auth Service)
+cd /path/to/your/symfony-project
+php vendor/kabiroman/octawire-auth-service-php-client-bundle/examples/integration-tests/test-client-integration.php
+
+# 3. Запустить Symfony приложение
+symfony server:start --port=8000
+
+# 4. Запустить HTTP тест (проверка аутентификации)
+php vendor/kabiroman/octawire-auth-service-php-client-bundle/examples/integration-tests/test-http-integration.php
+```
+
+Подробнее: [`examples/integration-tests/README.md`](examples/integration-tests/README.md)
+
+---
 
 ## 1. Предварительные условия
 
@@ -458,6 +482,107 @@ otus_project2/
     └── Integration/
         └── BundleIntegrationTest.php    # Интеграционные тесты
 ```
+
+---
+
+## 8. Примеры интеграционных тестов
+
+В директории `examples/integration-tests/` находятся готовые скрипты для тестирования:
+
+### 8.1 Файлы примеров
+
+| Файл | Описание |
+|------|----------|
+| `test-client-integration.php` | Тест прямого подключения к Auth Service |
+| `test-http-integration.php` | HTTP тест аутентификации через Symfony |
+| `config/octawire_auth_no_tls.yaml` | Конфигурация без TLS (development) |
+| `config/octawire_auth_with_tls.yaml` | Конфигурация с TLS (production-like) |
+| `README.md` | Подробное описание тестов |
+
+### 8.2 Быстрый тест без TLS
+
+```bash
+# Терминал 1: Auth Service
+cd services/auth-service
+./auth-service --config config/config.test.local.json
+
+# Терминал 2: Тест клиента
+php examples/integration-tests/test-client-integration.php
+```
+
+Ожидаемый вывод:
+```
+=== Auth Service Client Integration Test ===
+✓ AuthClient created
+✓ Health check passed
+✓ Token issued successfully
+✓ Token validated successfully
+=== All tests passed! ===
+```
+
+### 8.3 HTTP тест с Symfony
+
+```bash
+# Терминал 1: Auth Service (уже запущен)
+
+# Терминал 2: Symfony
+cd your-symfony-project
+php -S localhost:8000 -t public
+
+# Терминал 3: HTTP тест
+php examples/integration-tests/test-http-integration.php http://localhost:8000
+```
+
+Ожидаемый вывод:
+```
+=== HTTP Integration Test for Symfony Bundle ===
+✓ AuthClient created
+✓ Token issued
+[Test 2.1] Public endpoint (no auth):
+  ✓ Public endpoint works
+[Test 2.2] Protected endpoint (no auth - should fail):
+  ✓ Correctly rejected (401 Unauthorized)
+[Test 2.3] Protected endpoint (with valid token):
+  ✓ Protected endpoint works with valid token!
+  ✓ User ID: http-test-user-xxx
+  ✓ Roles: ["ROLE_ADMIN"]
+  ✓ Using camelCase 'userId' field (v0.9.4+)
+✅ All HTTP integration tests passed!
+```
+
+### 8.4 Переменные окружения
+
+| Переменная | По умолчанию | Описание |
+|------------|--------------|----------|
+| `AUTH_SERVICE_HOST` | `localhost` | Хост Auth Service |
+| `AUTH_SERVICE_PORT` | `50052` | TCP порт Auth Service |
+| `AUTH_SERVICE_TLS` | `false` | Включить TLS |
+| `AUTH_SERVICE_PROJECT_ID` | `test-project-id` | ID проекта |
+| `SYMFONY_URL` | `http://localhost:8000` | URL Symfony приложения |
+
+### 8.5 Копирование примеров в проект
+
+```bash
+# Скопировать примеры в ваш проект
+cp -r vendor/kabiroman/octawire-auth-service-php-client-bundle/examples/integration-tests ./tests/
+
+# Или создать симлинк
+ln -s ../vendor/kabiroman/octawire-auth-service-php-client-bundle/examples/integration-tests ./tests/integration-examples
+```
+
+---
+
+## 9. Версии и совместимость
+
+| Версия Bundle | PHP Client | Auth Service | Protocol | JSON Fields |
+|--------------|------------|--------------|----------|-------------|
+| 0.9.4+ | 0.9.4+ | v0.8.0+ | v1.0 | camelCase |
+| 0.9.3 | 0.9.3 | v0.7.x | v0.9 | snake_case |
+
+**Важно**: При обновлении с 0.9.3 на 0.9.4 необходимо учитывать:
+- Изменение `healthy` (bool) на `status` (string) в `HealthCheckResponse`
+- Добавление обязательного `projectId` в `ValidateTokenRequest`
+- Использование camelCase для полей в JSON (`userId`, `projectId`, `tokenType`, etc.)
 
 ---
 

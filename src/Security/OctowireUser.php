@@ -90,7 +90,8 @@ class OctowireUser implements UserInterface
      */
     public static function fromClaims(array $claims, array $roles = []): self
     {
-        $userId = $claims['user_id'] ?? $claims['sub'] ?? '';
+        // v0.9.4+ uses camelCase 'userId', with fallback to 'user_id' for compatibility
+        $userId = $claims['userId'] ?? $claims['user_id'] ?? $claims['sub'] ?? '';
         $extractedRoles = $roles ?: self::extractRolesFromClaims($claims);
 
         return new self($userId, $claims, $extractedRoles);

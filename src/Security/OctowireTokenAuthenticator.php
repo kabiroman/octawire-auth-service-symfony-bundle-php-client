@@ -107,12 +107,12 @@ class OctowireTokenAuthenticator extends AbstractAuthenticator implements Authen
         // Merge TokenClaims::toArray() with customClaims for flat array
         $claimsArray = $validationResponse->claims->toArray();
         $customClaims = $validationResponse->claims->customClaims ?? [];
-        // Remove 'custom_claims' key from claimsArray before merging to avoid duplication
-        unset($claimsArray['custom_claims']);
+        // Remove 'customClaims' key from claimsArray before merging to avoid duplication (v0.9.4+ uses camelCase)
+        unset($claimsArray['customClaims']);
         $allClaims = array_merge($claimsArray, $customClaims);
 
-        // Extract user ID
-        $userId = $allClaims['user_id'] ?? $allClaims['sub'] ?? '';
+        // Extract user ID (v0.9.4+ uses camelCase 'userId', with fallback to 'user_id' for compatibility)
+        $userId = $allClaims['userId'] ?? $allClaims['user_id'] ?? $allClaims['sub'] ?? '';
 
         if (empty($userId)) {
             throw new BadCredentialsException('User ID not found in token claims.');

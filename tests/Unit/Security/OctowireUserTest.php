@@ -40,6 +40,36 @@ class OctowireUserTest extends TestCase
         $this->assertEquals('value', $user->getClaim('custom'));
     }
 
+    public function testFromClaimsWithUserIdCamelCase(): void
+    {
+        // v0.9.4+ uses camelCase 'userId'
+        $claims = [
+            'userId' => 'user-camel-123',
+            'role' => 'admin',
+            'custom' => 'value',
+        ];
+
+        $user = OctowireUser::fromClaims($claims);
+
+        $this->assertEquals('user-camel-123', $user->getUserId());
+        $this->assertContains('ROLE_ADMIN', $user->getRoles());
+    }
+
+    public function testFromClaimsUserIdCamelCasePriority(): void
+    {
+        // When both userId and user_id present, userId (camelCase) takes priority
+        $claims = [
+            'userId' => 'user-camel',
+            'user_id' => 'user-snake',
+            'role' => 'admin',
+        ];
+
+        $user = OctowireUser::fromClaims($claims);
+
+        // camelCase should take priority
+        $this->assertEquals('user-camel', $user->getUserId());
+    }
+
     public function testFromClaimsWithSub(): void
     {
         $claims = [

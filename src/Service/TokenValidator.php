@@ -99,9 +99,13 @@ class TokenValidator
         try {
             $client = $this->clientFactory->getClient($projectId);
 
+            // Get effective projectId for request (v0.9.4+: projectId is required)
+            $effectiveProjectId = $projectId ?? $this->clientFactory->getDefaultProjectId() ?? '';
+
             // Create ValidateTokenRequest DTO
             $request = new ValidateTokenRequest(
                 token: $token,
+                projectId: $effectiveProjectId,  // Required in v0.9.3+
                 checkBlacklist: $this->checkBlacklist
             );
 
@@ -145,9 +149,13 @@ class TokenValidator
         try {
             $client = $this->clientFactory->getClient($projectId);
 
+            // Get effective projectId for request (v0.9.4+: projectId is required)
+            $effectiveProjectId = $projectId ?? $this->clientFactory->getDefaultProjectId() ?? '';
+
             // Create ValidateTokenRequest DTO with check_blacklist only
             $request = new ValidateTokenRequest(
                 token: $token,
+                projectId: $effectiveProjectId,  // Required in v0.9.3+
                 checkBlacklist: true
             );
 
@@ -200,7 +208,8 @@ class TokenValidator
                 return null;
             }
 
-            return $payload['project_id'] ?? $payload['aud'] ?? null;
+            // v0.9.4+ uses camelCase 'projectId', with fallback to 'project_id' for compatibility
+            return $payload['projectId'] ?? $payload['project_id'] ?? $payload['aud'] ?? null;
         } catch (\Exception $e) {
             return null;
         }
@@ -239,6 +248,9 @@ class TokenValidator
         }
 
         // Issue new service token
+        // Note: If Auth Service is running without projects section (single-project mode),
+        // it doesn't support project_id in IssueServiceToken. In this case, we should
+        // try without projectId if the first attempt fails with "project not found".
         try {
             $request = new IssueServiceTokenRequest(
                 sourceService: $serviceName,
@@ -276,6 +288,44 @@ class TokenValidator
                     $e
                 );
             }
+            
+            // If project not found and projectId was provided, try without projectId
+            // This handles the case when Auth Service is running in single-project mode
+            if ($projectId !== null && str_contains($e->getMessage(), 'project not found')) {
+                try {
+                    $requestWithoutProject = new IssueServiceTokenRequest(
+                        sourceService: $serviceName,
+                        projectId: null
+                    );
+
+                    $response = $client->issueServiceToken($requestWithoutProject, $serviceSecret);
+
+                    // Parse token to get expiration
+                    $expiresAt = time() + 3600;
+                    try {
+                        $parts = explode('.', $response->accessToken);
+                        if (count($parts) === 3) {
+                            $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+                            $expiresAt = $payload['exp'] ?? (time() + 3600);
+                        }
+                    } catch (\Exception $e) {
+                        // Use default expiration
+                    }
+
+                    // Cache the token per project (even though we didn't use projectId for issuance)
+                    $this->cachedServiceTokens[$projectId] = [
+                        'token' => $response->accessToken,
+                        'expires_at' => $expiresAt,
+                    ];
+
+                    return $response->accessToken;
+                } catch (\Exception $retryException) {
+                    // If retry also fails, throw the original error
+                    error_log('Failed to issue service token (retry without projectId also failed): ' . $retryException->getMessage());
+                    throw new AuthenticationException('Service authentication failed: ' . $e->getMessage(), 0, $e);
+                }
+            }
+            
             error_log('Failed to issue service token: ' . $e->getMessage());
             throw new AuthenticationException('Service authentication failed: ' . $e->getMessage(), 0, $e);
         } catch (\Exception $e) {

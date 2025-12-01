@@ -1,0 +1,38 @@
+# Example configuration for testing WITHOUT TLS
+# Copy to: config/packages/octawire_auth.yaml
+#
+# Auth Service must be running with TLS disabled:
+#   ./auth-service --config config/config.test.local.json
+#
+# config.test.local.json should have:
+#   "tcp.tls.enabled": false
+#   "security.auth_required": false
+
+octawire_auth:
+    # Project ID must match Auth Service configuration
+    # For config.test.local.json it's usually 'test-project-id'
+    default_project: 'test-project-id'
+    
+    projects:
+        test-project-id:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: false  # TLS disabled for dev testing
+            project_id: 'test-project-id'
+            # No api_key or service_auth needed if auth_required: false
+            retry:
+                max_attempts: 3
+                initial_backoff: 0.1
+                max_backoff: 5.0
+            key_cache:
+                driver: 'memory'
+                ttl: 3600
+                max_size: 100
+            timeout:
+                connect: 10.0
+                request: 30.0
+

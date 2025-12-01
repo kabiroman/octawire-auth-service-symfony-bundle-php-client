@@ -934,9 +934,56 @@ php bin/console debug:firewall
 1. Проверьте правильность `service_secret`
 2. Убедитесь, что `service_name` добавлен в `allowed_services` на Auth Service
 
+## Изменения в v0.9.4
+
+При обновлении с v0.9.3 на v0.9.4 учитывайте:
+
+### camelCase JSON поля
+
+Все JSON поля теперь используют camelCase (Protocol v1.0):
+- `user_id` → `userId`
+- `project_id` → `projectId`
+- `access_token` → `accessToken`
+
+Bundle автоматически поддерживает оба формата.
+
+### HealthCheckResponse
+
+```php
+// Было:
+$response->healthy  // bool
+
+// Стало:
+$response->status   // string: "healthy", "degraded", "unhealthy"
+```
+
+### IssueTokenResponse
+
+```php
+// Было:
+$response->accessTokenExpiresAt  // timestamp
+
+// Стало:
+$response->expiresIn  // TTL в секундах
+```
+
+### ValidateTokenRequest
+
+`projectId` теперь обязательный параметр:
+
+```php
+new ValidateTokenRequest(
+    token: $token,
+    projectId: $projectId,  // Обязательно в v0.9.4+
+    checkBlacklist: true
+);
+```
+
 ## Дополнительные ресурсы
 
 - [README.md](README.md) - Общая документация бандла
 - [TESTING.md](TESTING.md) - Руководство по тестированию
+- [CHANGELOG.md](CHANGELOG.md) - История изменений
 - [examples/](examples/) - Примеры использования
+- [examples/integration-tests/](examples/integration-tests/) - Примеры интеграционных тестов
 

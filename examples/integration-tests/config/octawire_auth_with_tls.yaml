@@ -1,0 +1,68 @@
+# Example configuration for testing WITH TLS
+# Copy to: config/packages/octawire_auth.yaml
+#
+# Auth Service must be running with TLS enabled:
+#   ./auth-service --config config/config.prod.service_auth_true.json
+#
+# TLS certificates should be generated using:
+#   make generate-dev-certs (in auth-service directory)
+
+octawire_auth:
+    default_project: 'test-project'
+    
+    projects:
+        test-project:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    required: true
+                    # Paths to TLS certificates (adjust for your environment)
+                    ca_file: '%kernel.project_dir%/config/tls/dev-ca.crt'
+                    cert_file: '%kernel.project_dir%/config/tls/client.crt'
+                    key_file: '%kernel.project_dir%/config/tls/client.key'
+                    server_name: 'localhost'
+            project_id: 'test-project'
+            # Service authentication (for inter-service calls)
+            service_auth:
+                service_name: 'symfony-app'
+                service_secret: 'your-service-secret-here'
+            retry:
+                max_attempts: 3
+                initial_backoff: 0.1
+                max_backoff: 5.0
+            key_cache:
+                driver: 'memory'
+                ttl: 3600
+                max_size: 100
+            timeout:
+                connect: 10.0
+                request: 30.0
+        
+        # Example of additional project configuration
+        admin-project:
+            transport: 'tcp'
+            tcp:
+                host: 'localhost'
+                port: 50052
+                persistent: true
+                tls:
+                    enabled: true
+                    required: true
+                    ca_file: '%kernel.project_dir%/config/tls/dev-ca.crt'
+                    cert_file: '%kernel.project_dir%/config/tls/client.crt'
+                    key_file: '%kernel.project_dir%/config/tls/client.key'
+                    server_name: 'localhost'
+            project_id: 'admin-project'
+            service_auth:
+                service_name: 'admin-api'
+                service_secret: 'admin-service-secret-456'
+            retry:
+                max_attempts: 3
+            key_cache:
+                driver: 'memory'
+                ttl: 3600
+

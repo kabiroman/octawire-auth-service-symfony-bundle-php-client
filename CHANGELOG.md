@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2025-12-01
+
+### Изменено
+- Обновлена зависимость от `kabiroman/octawire-auth-service-php-client` до версии `^0.9.4`
+- Обновлены все обработчики claims для поддержки camelCase формата (JATP Protocol v1.0):
+  - `OctowireTokenAuthenticator`: `customClaims` вместо `custom_claims`, `userId` вместо `user_id`
+  - `OctowireUser`: `userId` с fallback на `user_id` для обратной совместимости
+  - `TokenValidator::extractProjectIdFromToken()`: `projectId` с fallback на `project_id`
+- `TokenValidator::validateRemote()` и `checkBlacklistRemote()`: обновлены для передачи обязательного `projectId` в `ValidateTokenRequest` (требуется в PHP клиенте v0.9.3+)
+
+### Добавлено
+- Тесты для camelCase полей (`userId`, `projectId`) с проверкой приоритета над snake_case
+- Обратная совместимость: snake_case поля (`user_id`, `project_id`) продолжают работать как fallback
+
+### Исправлено
+- Исправлена ошибка `Argument #2 ($projectId) not passed` при валидации токенов - теперь `projectId` корректно передаётся в `ValidateTokenRequest`
+- Обновлены unit-тесты для совместимости с новой сигнатурой `IssueTokenResponse` (добавлен обязательный `expiresIn`)
+
+### Соответствие спецификациям
+- Полное соответствие Auth Service Protocol v1.0 (camelCase JSON fields)
+- Полное соответствие спецификации JATP_METHODS_1.0.json
+
 ## [0.9.3] - 2025-01-XX
 
 ### Изменено
